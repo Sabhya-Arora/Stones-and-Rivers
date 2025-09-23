@@ -131,6 +131,7 @@ vector<pair<int,int>> get_river_flow_destinations(
     return out;
 }
 
+
 vector<Move> generate_all_moves(vector<vector<map<string,string>>>& board,
                                 const string& player, int rows, int cols,
                                 const vector<int>& score_cols) {
@@ -171,6 +172,62 @@ vector<Move> generate_all_moves(vector<vector<map<string,string>>>& board,
         }
     }
     return moves;
+}
+
+int count_reachable_in_one(const vector<vector<map<string,string>>>& board,
+                           const string& player, int rows, int cols,
+                           const vector<int>& score_cols) {
+    int m = 0;
+
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            const auto& cell = board[y][x];
+            if (cell.empty()) continue;
+
+            // ---- Case 1: Stone ----
+            if (cell.at("owner") == player && cell.at("side") == "stone") {
+                if (is_own_score_cell(x, y, player, rows, cols, score_cols))
+                    continue;
+
+                // Generate all possible moves for this stone
+                auto moves = generate_all_moves(const_cast<vector<vector<map<string,string>>&>>(board),
+                                                player, rows, cols, score_cols);
+
+                for (const auto& mv : moves) {
+                    if (mv.from.size() < 2) continue;
+                    if (mv.from[0] != x || mv.from[1] != y) continue; // only moves from (x,y)
+
+                    if (mv.action == "move") {
+                        if (mv.to.size() >= 2) {
+                            int tx = mv.to[0], ty = mv.to[1];
+                            if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
+                                m++;
+                                break;
+                            }
+                        }
+                    } else if (mv.action == "push") {
+                        if (mv.pushed_to.size() >= 2) {
+                            int ptx = mv.pushed_to[0], pty = mv.pushed_to[1];
+                            if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
+                                m++;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Case 2: River ----
+            if (cell.at("owner") == player && cell.at("side") == "river") {
+                // If a river is already in the scoring area, flipping it makes a stone in scoring area
+                if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
+                    m++;
+                }
+            }
+        }
+    }
+
+    return m;
 }
 
 pair<bool,string> validate_and_apply_move(
