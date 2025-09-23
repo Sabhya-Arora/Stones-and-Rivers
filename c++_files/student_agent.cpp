@@ -2,12 +2,13 @@
 #include <pybind11/stl.h>
 #include <string>
 #include <vector>
-#include <iostream>
 #include <map>
 #include <random>
-using namespace std;
+#include <deque>
+#include <algorithm>
+#include <set>
 namespace py = pybind11;
-
+using namespace std;
 
 /*
 =========================================================
@@ -24,7 +25,7 @@ namespace py = pybind11;
 
  In C++ with pybind11, this becomes:
 
-    std::vector<std::vector<std::map<std::string, std::string>>>
+    vector<vector<map<string, string>>>
 
  Meaning:
    - board[y][x] gives the cell at (x, y).
@@ -38,85 +39,356 @@ namespace py = pybind11;
 
 // ---- Move struct ----
 struct Move {
-    std::string action;
-    std::vector<int> from;
-    std::vector<int> to;
-    std::vector<int> pushed_to;
-    std::string orientation;
+    string action;
+    vector<int> from;
+    vector<int> to;
+    vector<int> pushed_to;
+    string orientation;
 };
+
+string opponent(const string& player) {
+    return (player == "circle") ? "square" : "circle";
+}
+
+bool in_bounds(int x, int y, int rows, int cols) {
+    return (x >= 0 && x < cols && y >= 0 && y < rows);
+}
+
+bool is_opponent_score_cell(int x, int y, const string& player, int rows, int cols, const vector<int>& score_cols) {
+    if (player == "circle") {
+        return (y == rows - 3) && (find(score_cols.begin(), score_cols.end(), x) != score_cols.end());
+    } else {
+        return (y == 2) && (find(score_cols.begin(), score_cols.end(), x) != score_cols.end());
+    }
+}
+
+bool is_own_score_cell(int x, int y, const string& player, int rows, int cols, const vector<int>& score_cols) {
+    return is_opponent_score_cell(x, y, opponent(player), rows, cols, score_cols);
+}
+
+vector<pair<int,int>> get_river_flow_destinations(
+        const vector<vector<map<string,string>>>& board,
+        int rx, int ry, int sx, int sy,
+        const string& player, int rows, int cols,
+        const vector<int>& score_cols,
+        bool river_push=false) {
+
+    vector<pair<int,int>> destinations;
+    set<pair<int,int>> visited;
+    deque<pair<int,int>> queue = {{rx,ry}};
+
+    while (!queue.empty()) {
+        auto [x,y] = queue.front();
+        queue.pop_front();
+        if (visited.count({x,y}) || !in_bounds(x,y,rows,cols)) continue;
+        visited.insert({x,y});
+
+        auto cell = board[y][x];
+        if (river_push && x==rx && y==ry) {
+            cell = board[sy][sx];
+        }
+
+        if (cell.empty()) {
+            if (!is_opponent_score_cell(x,y,player,rows,cols,score_cols)) {
+                destinations.push_back({x,y});
+            }
+            continue;
+        }
+        if (cell.at("side") != "river") continue;
+
+        vector<pair<int,int>> dirs = 
+            (cell.at("orientation")=="horizontal") ? vector<pair<int,int>>{{1,0},{-1,0}}
+                                                   : vector<pair<int,int>>{{0,1},{0,-1}};
+
+        for (auto [dx,dy] : dirs) {
+            int nx = x+dx, ny = y+dy;
+            while (in_bounds(nx,ny,rows,cols)) {
+                if (is_opponent_score_cell(nx,ny,player,rows,cols,score_cols)) break;
+                auto next_cell = board[ny][nx];
+                if (next_cell.empty()) {
+                    destinations.push_back({nx,ny});
+                    nx += dx; ny += dy;
+                    continue;
+                }
+                if (nx==sx && ny==sy) { nx += dx; ny += dy; continue; }
+                if (next_cell.at("side") == "river") {
+                    queue.push_back({nx,ny});
+                    break;
+                }
+                break;
+            }
+        }
+    }
+    // deduplicate
+    vector<pair<int,int>> out;
+    set<pair<int,int>> seen;
+    for (auto& d : destinations) {
+        if (!seen.count(d)) {
+            seen.insert(d);
+            out.push_back(d);
+        }
+    }
+    return out;
+}
+
+vector<Move> generate_all_moves(vector<vector<map<string,string>>>& board,
+                                const string& player, int rows, int cols,
+                                const vector<int>& score_cols) {
+    vector<Move> moves;
+    vector<pair<int,int>> dirs = {{1,0},{-1,0},{0,1},{0,-1}};
+
+    for (int y=0; y<rows; y++) {
+        for (int x=0; x<cols; x++) {
+            auto& cell = board[y][x];
+            if (cell.empty() || cell.at("owner") != player) continue;
+
+            string side = cell.at("side");
+
+            if (side == "stone") {
+                for (auto [dx,dy] : dirs) {
+                    int nx=x+dx, ny=y+dy;
+                    if (!in_bounds(nx,ny,rows,cols)) continue;
+                    if (is_opponent_score_cell(nx,ny,player,rows,cols,score_cols)) continue;
+
+                    if (board[ny][nx].empty()) {
+                        moves.push_back({"move",{x,y},{nx,ny},{}, ""});
+                    } else if (board[ny][nx].at("owner") != player) {
+                        int px=nx+dx, py=ny+dy;
+                        if (in_bounds(px,py,rows,cols) &&
+                            board[py][px].empty() &&
+                            !is_opponent_score_cell(px,py,player,rows,cols,score_cols)) {
+                            moves.push_back({"push",{x,y},{nx,ny},{px,py},""});
+                        }
+                    }
+                }
+                // flips (safe check with flow omitted for brevity)
+                moves.push_back({"flip",{x,y},{x,y},{}, "horizontal"});
+                moves.push_back({"flip",{x,y},{x,y},{}, "vertical"});
+            } else { // river
+                moves.push_back({"flip",{x,y},{x,y},{}, ""});
+                moves.push_back({"rotate",{x,y},{x,y},{}, ""});
+            }
+        }
+    }
+    return moves;
+}
+
+pair<bool,string> validate_and_apply_move(
+    vector<vector<map<string,string>>>& board,
+    const Move& move,
+    const string& player,
+    int rows, int cols,
+    const vector<int>& score_cols)
+{
+    const string& action = move.action;
+
+    // ------------------ MOVE ------------------
+    if (action == "move") {
+        if (move.from.size() < 2 || move.to.size() < 2)
+            return {false, "move needs from & to"};
+
+        int fx = move.from[0], fy = move.from[1];
+        int tx = move.to[0], ty = move.to[1];
+
+        if (!in_bounds(fx,fy,rows,cols) || !in_bounds(tx,ty,rows,cols))
+            return {false, "oob"};
+
+        if (is_opponent_score_cell(tx,ty,player,rows,cols,score_cols))
+            return {false, "can't go into opponent score"};
+
+        auto& piece = board[fy][fx];
+        if (piece.empty() || piece.at("owner") != player)
+            return {false, "invalid piece"};
+
+        if (board[ty][tx].empty()) {
+            board[ty][tx] = piece;
+            board[fy][fx].clear();
+            return {true, "moved"};
+        }
+
+        if (move.pushed_to.size() < 2)
+            return {false, "destination occupied; pushed_to required"};
+
+        int ptx = move.pushed_to[0], pty = move.pushed_to[1];
+        int dx = tx - fx, dy = ty - fy;
+        if (make_pair(ptx,pty) != make_pair(tx+dx, ty+dy))
+            return {false, "invalid pushed_to"};
+
+        if (!in_bounds(ptx,pty,rows,cols))
+            return {false, "oob"};
+        if (is_opponent_score_cell(ptx,pty,player,rows,cols,score_cols))
+            return {false, "can't push into opponent score"};
+        if (!board[pty][ptx].empty())
+            return {false, "pushed_to not empty"};
+
+        board[pty][ptx] = board[ty][tx];
+        board[ty][tx]  = piece;
+        board[fy][fx].clear();
+        return {true, "move+push applied"};
+    }
+
+    // ------------------ PUSH ------------------
+    else if (action == "push") {
+        if (move.from.size()<2 || move.to.size()<2 || move.pushed_to.size()<2)
+            return {false, "push needs from,to,pushed_to"};
+
+        int fx=move.from[0], fy=move.from[1];
+        int tx=move.to[0], ty=move.to[1];
+        int px=move.pushed_to[0], py=move.pushed_to[1];
+
+        if (!(in_bounds(fx,fy,rows,cols) && in_bounds(tx,ty,rows,cols) && in_bounds(px,py,rows,cols)))
+            return {false, "oob"};
+
+        string pushed_player = board[ty][tx].empty() ? "" : board[ty][tx].at("owner");
+        if (is_opponent_score_cell(tx,ty,player,rows,cols,score_cols) ||
+            (!pushed_player.empty() && is_opponent_score_cell(px,py,pushed_player,rows,cols,score_cols)))
+            return {false, "push would enter opponent score cell"};
+
+        auto& piece = board[fy][fx];
+        if (piece.empty() || piece.at("owner") != player)
+            return {false, "invalid piece"};
+
+        if (board[ty][tx].empty())
+            return {false, "to must be occupied"};
+        if (!board[py][px].empty())
+            return {false, "pushed_to not empty"};
+
+        if (piece.at("side")=="river" && board[ty][tx].at("side")=="river")
+            return {false, "rivers cannot push rivers"};
+
+        // For simplicity we skip compute_valid_targets check here
+        board[py][px] = board[ty][tx];
+        board[ty][tx] = piece;
+        board[fy][fx].clear();
+
+        auto& mover = board[ty][tx];
+        if (mover.at("side")=="river") {
+            mover["side"] = "stone";
+            mover["orientation"] = "";
+        }
+
+        return {true, "push applied"};
+    }
+
+    // ------------------ FLIP ------------------
+    else if (action == "flip") {
+        if (move.from.size()<2) return {false, "flip needs from"};
+        int fx=move.from[0], fy=move.from[1];
+        if (!in_bounds(fx,fy,rows,cols)) return {false, "oob"};
+
+        auto& piece = board[fy][fx];
+        if (piece.empty() || piece.at("owner")!=player)
+            return {false, "invalid piece"};
+
+        if (piece.at("side")=="stone") {
+            string ori = move.orientation;
+            if (ori!="horizontal" && ori!="vertical")
+                return {false, "stone->river needs orientation"};
+
+            // temporarily flip to test safety
+            piece["side"]="river";
+            piece["orientation"]=ori;
+            auto flow = get_river_flow_destinations(board, fx, fy, fx, fy, player, rows, cols, score_cols);
+            piece["side"]="stone"; piece["orientation"]="";
+
+            for (auto [dx,dy]:flow) {
+                if (is_opponent_score_cell(dx,dy,player,rows,cols,score_cols))
+                    return {false, "flip would allow flow into opponent score"};
+            }
+
+            // commit flip
+            piece["side"]="river";
+            piece["orientation"]=ori;
+            return {true, "flipped to river"};
+        } else {
+            piece["side"]="stone";
+            piece["orientation"]="";
+            return {true, "flipped to stone"};
+        }
+    }
+
+    // ------------------ ROTATE ------------------
+    else if (action == "rotate") {
+        if (move.from.size()<2) return {false,"rotate needs from"};
+        int fx=move.from[0], fy=move.from[1];
+        if (!in_bounds(fx,fy,rows,cols)) return {false,"oob"};
+
+        auto& piece = board[fy][fx];
+        if (piece.empty() || piece.at("owner")!=player)
+            return {false, "invalid"};
+        if (piece.at("side")!="river")
+            return {false, "rotate only on river"};
+
+        // flip orientation
+        piece["orientation"] = (piece["orientation"]=="vertical") ? "horizontal" : "vertical";
+
+        auto flow = get_river_flow_destinations(board, fx, fy, fx, fy, player, rows, cols, score_cols);
+        for (auto [dx,dy]:flow) {
+            if (is_opponent_score_cell(dx,dy,player,rows,cols,score_cols)) {
+                // revert orientation
+                piece["orientation"] = (piece["orientation"]=="vertical") ? "horizontal" : "vertical";
+                return {false, "rotation allows flow into opponent score"};
+            }
+        }
+        return {true, "rotated"};
+    }
+
+    return {false,"unknown action"};
+}
 
 // ---- Student Agent ----
 class StudentAgent {
 public:
-    explicit StudentAgent(std::string side) : side(std::move(side)), gen(rd()) {}
+    int cutoffdepth = 3;
+    explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
     Move choose(const std::vector<std::vector<std::map<std::string, std::string>>>& board, int row, int col, const std::vector<int>& score_cols, float current_player_time, float opponent_time) {
-        int rows = board.size();
-        int cols = board[0].size();
-        cout<<"HELLO"<<endl;
-        std::vector<Move> moves;
+        vector<vector<map<string, string>>> curboard = board;
+        return maxValue(board, row, col, score_cols, 0, -1e9, 1e9).second;
+    }
 
-        // Directions
-        std::vector<std::pair<int,int>> dirs = {{1,0},{-1,0},{0,1},{0,-1}};
-
-        // Iterate over board
-        for (int y = 0; y < rows; y++) {
-            for (int x = 0; x < cols; x++) {
-                const auto &cell = board[y][x];
-                if (cell.empty()) continue;
-
-                if (cell.at("owner") != side) continue; // only my pieces
-
-                std::string side_type = cell.at("side");
-
-                // ---- MOVES ----
-                for (auto [dx,dy] : dirs) {
-                    int nx = x+dx, ny = y+dy;
-                    if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
-
-                    if (board[ny][nx].empty()) {
-                        moves.push_back({"move", {x,y}, {nx,ny}, {}, ""});
-                    }
-                }
-
-                // ---- PUSHES ----
-                for (auto [dx,dy] : dirs) {
-                    int nx = x+dx, ny = y+dy;
-                    int nx2 = x+2*dx, ny2 = y+2*dy;
-                    if (nx<0||ny<0||nx>=cols||ny>=rows) continue;
-                    if (nx2<0||ny2<0||nx2>=cols||ny2>=rows) continue;
-
-                    if (!board[ny][nx].empty() && board[ny][nx].at("owner") != side
-                        && board[ny2][nx2].empty()) {
-                        moves.push_back({"push", {x,y}, {nx,ny}, {nx2,ny2}, ""});
-                    }
-                }
-
-                // ---- FLIP ----
-                if (side_type == "stone") {
-                    moves.push_back({"flip", {x,y}, {x,y}, {}, "horizontal"});
-                    moves.push_back({"flip", {x,y}, {x,y}, {}, "vertical"});
-                }
-
-                // ---- ROTATE ----
-                if (side_type == "river") {
-                    moves.push_back({"rotate", {x,y}, {x,y}, {}, ""});
-                }
+    pair<double, Move> maxValue(vector<vector<map<string, string>>>& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        if (depth == cutoffdepth) {
+            return evaluateBoard(board, row, col, score_cols);
+        }
+        double max_val = -1e9;
+        Move best_move;
+        for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
+            validate_and_apply_move(board, move, side, row, col, score_cols);
+            double val = minValue(new_board, row, col, score_cols, depth + 1, alpha, beta);
+            alpha = max(alpha, val);
+            if (val > max_val) {
+                max_val = val;
+                best_move = move;
             }
+            if (beta <= alpha) break;
         }
+        return {max_val, best_move};
+    }
 
-        if (moves.empty()) {
-            return {"move", {0,0}, {0,0}, {}, ""}; // fallback
+    pair<double, Move> minValue(const vector<vector<map<string, string>>>& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        if (depth == cutoffdepth) {
+            return evaluateBoard(board, row, col, score_cols);
         }
-
-        std::uniform_int_distribution<> dist(0, moves.size()-1);
-        return moves[dist(gen)];
+        double min_val = 1e9;
+        Move worst_move;
+        for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
+            auto new_board = validate_and_apply_move(board, move, side, row, col, score_cols);
+            double val = maxValue(new_board, row, col, score_cols, depth + 1, alpha, beta);
+            beta = min(beta, val);
+            if (val < min_val) {
+                min_val = val;
+                worst_move = move;
+            }
+            if (beta <= alpha) break;
+        }
+        return {min_val, worst_move};
     }
 
 private:
-    std::string side;
-    std::random_device rd;
-    std::mt19937 gen;
+    string side;
+    random_device rd;
+    mt19937 gen;
 };
 
 // ---- PyBind11 bindings ----
@@ -129,6 +401,6 @@ PYBIND11_MODULE(student_agent_module, m) {
         .def_readonly("orientation", &Move::orientation);
 
     py::class_<StudentAgent>(m, "StudentAgent")
-        .def(py::init<std::string>())
+        .def(py::init<string>())
         .def("choose", &StudentAgent::choose);
 }
