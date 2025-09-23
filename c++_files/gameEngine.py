@@ -269,7 +269,7 @@ def compute_valid_targets(board:List[List[Optional[Piece]]],
             # stone occupied
             if p.side == "stone":
                 px,py = tx+dx, ty+dy
-                if in_bounds(px,py,rows,cols) and board[py][px] is None and not is_opponent_score_cell(px,py,p.owner,rows,cols,score_cols):
+                if in_bounds(px,py,rows,cols) and board[py][px] is None and not is_opponent_score_cell(px,py,target.owner,rows,cols,score_cols):
                     pushes.append(((tx,ty),(px,py)))
             else:
                 pushed_player = target.owner
