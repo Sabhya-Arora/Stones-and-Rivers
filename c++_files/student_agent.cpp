@@ -71,11 +71,11 @@ vector<pair<int,int>> get_river_flow_destinations(
         int rx, int ry, int sx, int sy,
         const string& player, int rows, int cols,
         const vector<int>& score_cols,
-        bool river_push=false) {
+        bool river_push=false) { // river push true when sx sy river else false
 
     vector<pair<int,int>> destinations;
     set<pair<int,int>> visited;
-    deque<pair<int,int>> queue = {{rx,ry}};
+    deque <pair<int,int>> queue = {{rx,ry}};
 
     while (!queue.empty()) {
         auto [x,y] = queue.front();
@@ -131,43 +131,98 @@ vector<pair<int,int>> get_river_flow_destinations(
     return out;
 }
 
+std::vector<Move> generate_all_moves(
+    std::vector<std::vector<std::map<std::string, std::string>>>& board,
+    const std::string& player,
+    int rows,
+    int cols,
+    const std::vector<int>& score_cols)
+{
+    std::vector<Move> moves;
+    const std::vector<std::pair<int, int>> dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 
-vector<Move> generate_all_moves(vector<vector<map<string,string>>>& board,
-                                const string& player, int rows, int cols,
-                                const vector<int>& score_cols) {
-    vector<Move> moves;
-    vector<pair<int,int>> dirs = {{1,0},{-1,0},{0,1},{0,-1}};
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            // Use a reference to allow mutation, matching Python's behavior
+            auto& p = board[y][x];
+            if (p.empty() || p.at("owner") != player) {
+                continue;
+            }
 
-    for (int y=0; y<rows; y++) {
-        for (int x=0; x<cols; x++) {
-            auto& cell = board[y][x];
-            if (cell.empty() || cell.at("owner") != player) continue;
+            if (p.at("side") == "stone") {
+                for (const auto& dir : dirs) {
+                    int dx = dir.first;
+                    int dy = dir.second;
+                    int nx = x + dx;
+                    int ny = y + dy;
 
-            string side = cell.at("side");
-
-            if (side == "stone") {
-                for (auto [dx,dy] : dirs) {
-                    int nx=x+dx, ny=y+dy;
-                    if (!in_bounds(nx,ny,rows,cols)) continue;
-                    if (is_opponent_score_cell(nx,ny,player,rows,cols,score_cols)) continue;
+                    if (!in_bounds(nx, ny, rows, cols) || is_opponent_score_cell(nx, ny, player, rows, cols, score_cols)) {
+                        continue;
+                    }
 
                     if (board[ny][nx].empty()) {
-                        moves.push_back({"move",{x,y},{nx,ny},{}, ""});
-                    } else if (board[ny][nx].at("owner") != player) {
-                        int px=nx+dx, py=ny+dy;
-                        if (in_bounds(px,py,rows,cols) &&
-                            board[py][px].empty() &&
-                            !is_opponent_score_cell(px,py,player,rows,cols,score_cols)) {
-                            moves.push_back({"push",{x,y},{nx,ny},{px,py},""});
+                        moves.push_back({"move", {x, y}, {nx, ny}});
+                    } else {
+                        const auto& target = board[ny][nx];
+                        if (target.at("side") == "river") {
+                            auto flow = get_river_flow_destinations(board, nx, ny, x, y, player, rows, cols, score_cols);
+                            for (const auto& d : flow) {
+                                moves.push_back({"move", {x, y}, {d.first, d.second}});
+                            }
+                        } else {
+                            int px = nx + dx;
+                            int py = ny + dy;
+                            if (in_bounds(px, py, rows, cols) && board[py][px].empty() && !is_opponent_score_cell(px, py, target.at("owner"), rows, cols, score_cols)) {
+                                moves.push_back({"push", {x, y}, {nx, ny}, {px, py}});
+                            }
                         }
                     }
                 }
-                // flips (safe check with flow omitted for brevity)
-                moves.push_back({"flip",{x,y},{x,y},{}, "horizontal"});
-                moves.push_back({"flip",{x,y},{x,y},{}, "vertical"});
-            } else { // river
-                moves.push_back({"flip",{x,y},{x,y},{}, ""});
-                moves.push_back({"rotate",{x,y},{x,y},{}, ""});
+                // flips
+                for (const std::string& ori : {"horizontal", "vertical"}) {
+                    // WARNING: This mutates the input board, preserving the original Python logic.
+                    p["side"] = "river";
+                    p["orientation"] = ori;
+                    moves.push_back({"flip", {x, y}, {}, {}, ori});
+                }
+            } else { // Preserving the duplicated logic block from the Python code
+                for (const auto& dir : dirs) {
+                    int dx = dir.first;
+                    int dy = dir.second;
+                    int nx = x + dx;
+                    int ny = y + dy;
+
+                    if (!in_bounds(nx, ny, rows, cols) || is_opponent_score_cell(nx, ny, player, rows, cols, score_cols)) {
+                        continue;
+                    }
+
+                    if (board[ny][nx].empty()) {
+                        moves.push_back({"move", {x, y}, {nx, ny}});
+                    } else {
+                        const auto& target = board[ny][nx];
+                        if (target.at("side") == "river") {
+                            auto flow = get_river_flow_destinations(board, nx, ny, x, y, player, rows, cols, score_cols);
+                            for (const auto& d : flow) {
+                                moves.push_back({"move", {x, y}, {d.first, d.second}});
+                            }
+                        } else { // river on stone
+                            string pushed_player = target.at("owner");
+                            auto flow = get_river_flow_destinations(board, nx, ny, x, y, pushed_player, rows, cols, score_cols, true);
+                            for (const auto& d : flow) {
+                                if (!is_opponent_score_cell(d.first, d.second, pushed_player, rows, cols, score_cols)) {
+                                    moves.push_back({"push", {x, y}, {nx, ny}, {d.first, d.second}});
+                                }
+                            }
+                        }
+                    }
+                }
+                // flip to stone side
+                moves.push_back({"flip", {x, y}});
+                // rotate
+                // WARNING: This mutates the input board, preserving the original Python logic.
+                std::string new_ori = (p.at("orientation") == "horizontal") ? "vertical" : "horizontal";
+                p["orientation"] = new_ori;
+                moves.push_back({"rotate", {x, y}});
             }
         }
     }
@@ -396,12 +451,12 @@ pair<bool,string> validate_and_apply_move(
 // ---- Student Agent ----
 class StudentAgent {
 public:
-    int cutoffdepth = 3;
+    int cutoffdepth = 2;
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
     Move choose(const std::vector<std::vector<std::map<std::string, std::string>>>& board, int row, int col, const std::vector<int>& score_cols, float current_player_time, float opponent_time) {
         vector<vector<map<string, string>>> curboard = board;
-        return maxValue(board, row, col, score_cols, 0, -1e9, 1e9).second;
+        return maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).second;
     }
 
     pair<double, Move> maxValue(vector<vector<map<string, string>>>& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
@@ -411,8 +466,9 @@ public:
         double max_val = -1e9;
         Move best_move;
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
-            validate_and_apply_move(board, move, side, row, col, score_cols);
-            double val = minValue(new_board, row, col, score_cols, depth + 1, alpha, beta);
+            vector<vector<map<string, string>>> new_board = board;
+            validate_and_apply_move(new_board, move, side, row, col, score_cols);
+            double val = minValue(new_board, row, col, score_cols, depth + 1, alpha, beta).first;
             alpha = max(alpha, val);
             if (val > max_val) {
                 max_val = val;
@@ -423,15 +479,16 @@ public:
         return {max_val, best_move};
     }
 
-    pair<double, Move> minValue(const vector<vector<map<string, string>>>& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+    pair<double, Move> minValue(vector<vector<map<string, string>>>& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
         if (depth == cutoffdepth) {
             return evaluateBoard(board, row, col, score_cols);
         }
         double min_val = 1e9;
         Move worst_move;
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
-            auto new_board = validate_and_apply_move(board, move, side, row, col, score_cols);
-            double val = maxValue(new_board, row, col, score_cols, depth + 1, alpha, beta);
+            vector<vector<map<string, string>>> new_board = board;
+            validate_and_apply_move(new_board, move, side, row, col, score_cols);
+            double val = maxValue(new_board, row, col, score_cols, depth + 1, alpha, beta).first;
             beta = min(beta, val);
             if (val < min_val) {
                 min_val = val;
@@ -440,6 +497,25 @@ public:
             if (beta <= alpha) break;
         }
         return {min_val, worst_move};
+    }
+
+    int riversToGoal(const vector<vector<map<string,string>>>& board, const string& player, int rows, int cols, const vector<int>& score_cols) {
+        int count = 0;
+        for (int y=0; y<rows; y++) {
+            for (int x=0; x<cols; x++) {
+                if (board[y][x].empty()) continue;
+                if (board[y][x].at("side") == "river") {
+                    auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+                    for (auto [dx,dy]:flow) {
+                        if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
+                            count++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return count;
     }
 
 private:
