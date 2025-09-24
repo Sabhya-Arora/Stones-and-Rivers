@@ -301,62 +301,6 @@ vector<Move> generate_all_moves(
     return moves;
 }
 
-int count_reachable_in_one(const vector<vector<map<string,string>>>& board,
-                           const string& player, int rows, int cols,
-                           const vector<int>& score_cols) {
-    int m = 0;
-
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            const auto& cell = board[y][x];
-            if (cell.empty()) continue;
-
-            // ---- Case 1: Stone ----
-            if (cell.at("owner") == player && cell.at("side") == "stone") {
-                if (is_own_score_cell(x, y, player, rows, cols, score_cols))
-                    continue;
-
-                // Generate all possible moves for this stone
-                auto moves = generate_all_moves(const_cast<vector<vector<map<string,string>>&>>(board),
-                                                player, rows, cols, score_cols);
-
-                for (const auto& mv : moves) {
-                    if (mv.from.size() < 2) continue;
-                    if (mv.from[0] != x || mv.from[1] != y) continue; // only moves from (x,y)
-
-                    if (mv.action == "move") {
-                        if (mv.to.size() >= 2) {
-                            int tx = mv.to[0], ty = mv.to[1];
-                            if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
-                                m++;
-                                break;
-                            }
-                        }
-                    } else if (mv.action == "push") {
-                        if (mv.pushed_to.size() >= 2) {
-                            int ptx = mv.pushed_to[0], pty = mv.pushed_to[1];
-                            if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
-                                m++;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ---- Case 2: River ----
-            if (cell.at("owner") == player && cell.at("side") == "river") {
-                // If a river is already in the scoring area, flipping it makes a stone in scoring area
-                if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
-                    m++;
-                }
-            }
-        }
-    }
-
-    return m;
-}
-
 pair<bool,string> validate_and_apply_move(
     Board& board,
     const Move& move,
@@ -559,14 +503,14 @@ int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols,
 
 
 
-int count_reachable_in_one(
+pair<int,int> count_reachable_in_one(
 const Board& board,
 const string& player,
 int rows, int cols,
 const vector<int>& score_cols)
 {
     int m = 0;
-
+    int count = 0;
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
             const auto& p = board[y][x];
@@ -578,7 +522,7 @@ const vector<int>& score_cols)
 
                 // compute valid targets
                 auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
-
+                count+=moves.size();
                 // check moves
                 bool found = false;
                 for (auto& [tx, ty] : moves) {
@@ -611,7 +555,7 @@ const vector<int>& score_cols)
         }
     }
 
-    return m;
+    return {m, count};
 }
 
 
@@ -634,22 +578,6 @@ const vector<int>& score_cols)
     return count;
 }
 
-int reachabilitystones(const Board& board, const string& player, int rows, int cols, const vector<int>& score_cols) {
-    int count = 0;
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            if (board[i][j].empty()) continue;
-            if (board[i][j].at("owner") == player && board[i][j].at("side") == "stone") {
-                if (is_own_score_cell(j, i, player, rows, cols, score_cols)) {
-                    continue;
-                }
-                auto [moves, pushes] = compute_valid_targets(board, j, i, player, rows, cols, score_cols);
-                count += moves.size();
-            }
-        }
-    }
-    return count;
-}
 
 int countScoringPieces(const Board& board, const string& player, int rows, int cols, const vector<int>& score_cols) {
     int scorerow = (player == "circle" ? 2 : rows - 3);
@@ -661,6 +589,7 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
     } 
     return count;
 }
+
 
 // ---- Student Agent ----
 class StudentAgent {
