@@ -6,6 +6,7 @@
 #include <random>
 #include <deque>
 #include <algorithm>
+#include <iostream>
 #include <set>
 namespace py = pybind11;
 using namespace std;
@@ -480,7 +481,7 @@ pair<bool,string> validate_and_apply_move(
 }
 
 
-int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols, string &side){
+int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols, const string &side){
     int total_dist = 0;
     int rows = board.size();
     int cols = board[0].size();
@@ -606,29 +607,131 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
     return count;
 }
 
+
+
+
 // ---- Student Agent ----
 class StudentAgent {
 public:
-    
+    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 15, -15, 1, -1};
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    
+    int terminated(const Board& board, int rows, int cols, 
+               const std::vector<int>& score_cols) {
+        int own_score = countScoringPieces(board, side, rows, cols, score_cols);
+        int opp_score = countScoringPieces(board, opponent(side), rows, cols, score_cols);
+
+        // Check win by scoring 4 pieces
+        if (own_score == 4) return 1;  // circle wins
+        if (opp_score == 4) return 2;  // square wins
+
+        // Check timeouts
+        if (m_current_player_time <= 0 && m_opponent_time > 0) {
+            return 2;  // square wins
+        }
+        if (m_opponent_time <= 0 && m_current_player_time > 0) {
+            return 1;  // circle wins
+        }
+        if (m_current_player_time <= 0 && m_opponent_time <= 0) {
+            return 3;  // 3 = draw
+        }
+        if (moves >= 1000) {
+            return 3;  // draw
+        }
+        return 0; // game continues
+    }
+
+    map<string,double> compute_final_scores(
+    const Board& board,
+    optional<string> winner,
+    int rows, int cols,
+    const vector<int>& score_cols)
+    {
+        // --- Clock-based winner check ---
+        if (!winner.has_value()) {
+            double c_time = m_current_player_time;
+            double s_time = m_opponent_time;
+
+            if (c_time <= 0 && s_time > 0) {
+                winner = "square";
+            } else if (s_time <= 0 && c_time > 0) {
+                winner = "circle";
+            }
+            // if both <= 0 or both > 0, leave winner unchanged (draw case handled later)
+        }
+
+        // helper lambda to compute (n, m)
+        auto nm_for = [&](const string& player) -> pair<double,double> {
+            double n = static_cast<double>(countScoringPieces(board, player, rows, cols, score_cols));
+            double m = static_cast<double>(count_reachable_in_one(board, player, rows, cols, score_cols));
+            return {n, m};
+        };
+
+        map<string,double> scores;
+        scores["circle"] = 0.0;
+        scores["square"] = 0.0;
+
+        if (winner.has_value() && (*winner == "circle" || *winner == "square")) {
+            string loser = opponent(*winner);
+            auto [n_loser, m_loser] = nm_for(loser);
+
+            double loser_score = n_loser + m_loser / 10.0;
+            double winner_score = 100.0 - loser_score;
+
+            scores[*winner] = winner_score;
+            scores[loser] = loser_score;
+        } else {
+            // draw case
+            constexpr double DRAW_SCORE = 30.0;
+            for (auto& player : {"circle", "square"}) {
+                auto [n_self, m_self] = nm_for(player);
+                auto [n_opp, m_opp] = nm_for(opponent(player));
+
+                double margin = 39.0 + ((n_self + m_self / 10.0) - (n_opp + m_opp / 10.0));
+                double total = DRAW_SCORE + margin / 4.0;
+                scores[player] = total;
+            }
+        }
+
+        return scores;
+    }
+
+
     double evaluateBoard(const Board& board, int rows, int cols, const vector<int>& score_cols) {
-        vector<double> weights = {100, -0, 0, 0.0, 0.0};
+        vector<double> features;
         double score = 0;
-        score += weights[0] * (countScoringPieces(board, side, rows, cols, score_cols) - countScoringPieces(board, opponent(side), rows, cols, score_cols)) +
-        weights[1] * get_total_manhattan_dist(board, score_cols, side) + 
-        weights[2] * (count_reachable_in_one(board, side, rows, cols, score_cols) - count_reachable_in_one(board, opponent(side), rows, cols, score_cols)) + 
-        weights[3] * (riversToGoal(board, side, rows, cols, score_cols) - riversToGoal(board, opponent(side), rows, cols, score_cols));
+        features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
+        features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
+        features.push_back(count_reachable_in_one(board, side, rows, cols, score_cols));
+        features.push_back(count_reachable_in_one(board, opponent(side), rows, cols, score_cols));
+        features.push_back(get_total_manhattan_dist(board, score_cols, side));
+        features.push_back(get_total_manhattan_dist(board, score_cols, opponent(side)));
+        features.push_back(riversToGoal(board, side, rows, cols, score_cols));
+        features.push_back(riversToGoal(board, opponent(side), rows, cols, score_cols));
+        // features.push_back(reachabilitystones(board, side, rows, cols, score_cols));
+        // features.push_back(reachabilitystones(board, opponent(side), rows, cols, score_cols));
+        for (size_t i = 0; i < features.size(); i++) {
+            score += weights[i] * features[i];
+        }
         return score;
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
+        m_current_player_time = current_player_time;
+        m_opponent_time = opponent_time;
         Board curboard = board;
         return maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).second;
     }
 
     pair<double, Move> maxValue(const Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        int winner = terminated(board, row, col, score_cols);
+        if (winner == 1) { // we win
+            return {compute_final_scores(board, side, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        } else if (winner == 2) { // opponent wins
+            return {compute_final_scores(board, opponent(side), row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        } else if (winner == 3) {
+            return {compute_final_scores(board, nullopt, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        }
         if (depth == cutoffdepth) {
             return {evaluateBoard(board, row, col, score_cols), Move()}; // return dummy move
         }
@@ -640,11 +743,13 @@ public:
             validate_and_apply_move(new_board, move, side, row, col, score_cols);
             visit_order.push_back({new_board, move});
         }
-        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-            return evaluateBoard(a.first, row, col, score_cols) > evaluateBoard(b.first, row, col, score_cols);
-        });
+        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+        //     return evaluateBoard(a.first, row, col, score_cols) > evaluateBoard(b.first, row, col, score_cols);
+        // });
         for (auto [board, move]:visit_order) {
+            moves++;
             double val = minValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+            moves--;
             alpha = max(alpha, val);
             if (val > max_val) {
                 max_val = val;
@@ -652,10 +757,19 @@ public:
             }
             if (beta <= alpha) break;
         }
+
         return {max_val, best_move};
     }
 
     pair<double, Move> minValue(const Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        int winner = terminated(board, row, col, score_cols);
+        if (winner == 1) { // we win
+            return {compute_final_scores(board, side, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        } else if (winner == 2) { // opponent wins
+            return {compute_final_scores(board, opponent(side), row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        } else if (winner == 3) {
+            return {compute_final_scores(board, nullopt, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
+        }
         if (depth == cutoffdepth) {
             return {evaluateBoard(board, row, col, score_cols), Move()};
         }
@@ -667,11 +781,13 @@ public:
             validate_and_apply_move(new_board, move, opponent(side), row, col, score_cols);
             visit_order.push_back({new_board, move});
         }
-        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-            return evaluateBoard(a.first, row, col, score_cols) < evaluateBoard(b.first, row, col, score_cols);
-        });
+        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+        //     return evaluateBoard(a.first, row, col, score_cols) < evaluateBoard(b.first, row, col, score_cols);
+        // });
         for (auto [board, move] : visit_order) {
+            moves++;
             double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+            moves--;
             beta = min(beta, val);
             if (val < min_val) {
                 min_val = val;
@@ -686,6 +802,9 @@ public:
 
 private:
     string side;
+    float m_current_player_time;
+    float m_opponent_time;
+    int moves = 0;
     int cutoffdepth = 2;
     random_device rd;
     mt19937 gen;
