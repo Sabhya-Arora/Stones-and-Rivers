@@ -10,6 +10,8 @@
 namespace py = pybind11;
 using namespace std;
 using Board = vector<vector<map<string, string>>>;
+using Cell = map<string, string>;
+Cell empty_cell = {};
 
 /*
 =========================================================
@@ -66,6 +68,15 @@ bool is_opponent_score_cell(int x, int y, const string& player, int rows, int co
 bool is_own_score_cell(int x, int y, const string& player, int rows, int cols, const vector<int>& score_cols) {
     return is_opponent_score_cell(x, y, opponent(player), rows, cols, score_cols);
 }
+
+// Cell& find_cell (int x, int y, const map <pair<int,int>,Cell> &own_pieces, const map <pair<int,int>,Cell> &opponent_pieces) {
+//     auto it = own_pieces.find({x,y});
+//     if (it != own_pieces.end()) return it->second;
+//     it = opponent_pieces.find({x,y});
+//     if (it != opponent_pieces.end()) return it->second;
+//     return empty_cell;
+// }
+
 
 vector<pair<int,int>> get_river_flow_destinations(
         const Board& board,
@@ -181,7 +192,6 @@ compute_valid_targets(
                 if (in_bounds(px,py,rows,cols) &&
                     board[py][px].empty() &&
                     !is_opponent_score_cell(px,py,target.at("owner"),rows,cols,score_cols)) {
-                    
                     pushes.push_back({{tx,ty}, {px,py}});
                 }
             } else {
@@ -480,76 +490,64 @@ pair<bool,string> validate_and_apply_move(
 }
 
 
-int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols, string &side){
+pair<int,int> get_total_manhattan_dist (const Board& board,const set <pair<int,int>> &own_pieces, const vector<int>& score_cols, string &side){
     int total_dist = 0;
+    int min_manhattan = rows + cols;
     int rows = board.size();
     int cols = board[0].size();
     int score_row = (side=="circle") ? 2 : rows - 3; 
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            const auto &cell = board[y][x];
-            if (cell.empty()) continue;
-            if (cell.at("owner") != side) continue;
-
-            int min_dist = cols + rows;
-            for (int sc : score_cols) {
-                min_dist = min(min_dist, abs(sc - x) + abs(score_row - y));
-            }
-            total_dist += min_dist;
+    for(auto piece : own_pieces) {
+        int x = piece.first;
+        int y = piece.second;
+        const auto& cell = piece.second;
+        int min_dist = cols + rows;
+        for (int sc : score_cols) {
+            min_dist = min(min_dist, abs(sc - x) + abs(score_row - y));
         }
+        total_dist += min_dist;
+        min_manhattan = min(min_manhattan, min_dist);
     }
-    return total_dist;
+    return {total_dist, min_manhattan};
 }
 
 
 
 pair<int,int> count_reachable_in_one(
 const Board& board,
+const set <pair<int,int>> &own_pieces,
 const string& player,
 int rows, int cols,
 const vector<int>& score_cols)
 {
     int m = 0;
     int count = 0;
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            const auto& p = board[y][x];
-            if (!p.empty() && p.at("owner") == player && p.at("side") == "stone") {
-                // already in own scoring area → skip
-                if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
-                    continue;
-                }
-
-                // compute valid targets
-                auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
-                count+=moves.size();
-                // check moves
-                bool found = false;
-                for (auto& [tx, ty] : moves) {
-                    if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
-                        m++;
-                        found = true;
-                        break;
-                    }
-                }
-
-                // if no direct moves, check pushes
-                if (!found) {
-                    for (auto& push : pushes) {
-                        auto [ptx, pty] = push.second;
-                        if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
-                            m++;
-                            break;
-                        }
-                    }
-                }
+    for(auto piece : own_pieces){
+        int x = piece.first;
+        int y = piece.second;
+        const auto& p = board[y][x];
+        // already in own scoring area → skip
+        if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
+            continue;
+        }
+        // compute valid targets
+        auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
+        if(p.at("side")=="stone") count+=moves.size();
+        // check moves
+        bool found = false;
+        for (auto& [tx, ty] : moves) {
+            if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
+                m++;
+                found = true;
+                break;
             }
-
-            // If it's a river piece
-            if (!p.empty() && p.at("owner") == player && p.at("side") == "river") {
-                if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
-                    // flipping would make it a stone in the scoring area
+        }
+        // if no direct moves, check pushes
+        if (p.at("side")=="river" &&  (!found)) {
+            for (auto& push : pushes) {
+                auto [ptx, pty] = push.second;
+                if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
                     m++;
+                    break;
                 }
             }
         }
@@ -559,18 +557,18 @@ const vector<int>& score_cols)
 }
 
 
- int riversToGoal(const Board& board, const string& player, int rows, int cols, const vector<int>& score_cols) {
+int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
     int count = 0;
-    for (int y=0; y<rows; y++) {
-        for (int x=0; x<cols; x++) {
-            if (board[y][x].empty()) continue;
-            if (board[y][x].at("side") == "river") {
-                auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
-                for (auto [dx,dy]:flow) {
-                    if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
-                        count++;
-                        break;
-                    }
+    for(auto piece : own_pieces) {
+        int x = piece.first.first;
+        int y = piece.first.second;
+        if (board[y][x].empty()) continue;
+        if (board[y][x].at("side") == "river") {
+            auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            for (auto [dx,dy]:flow) {
+                if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
+                    count++;
+                    break;
                 }
             }
         }
