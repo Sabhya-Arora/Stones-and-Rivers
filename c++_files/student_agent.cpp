@@ -652,6 +652,7 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
             count++;
         }
     } 
+    if (count == 4) return 10;
     return count;
 }
 
@@ -662,7 +663,7 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -4, 4};
+    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 15, -15, 1, -1, -2, 2};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
         vector<double> features;
         double score = 0;
@@ -676,22 +677,21 @@ public:
         features.push_back(m2);
         features.push_back(totalman1);
         features.push_back(totalman2);
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
         features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
-        features.push_back(total1);
-        features.push_back(total2);
-        features.push_back(minman1);
-        features.push_back(minman2);
+        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
+        // features.push_back(total1);
+        // features.push_back(total2);
+        // features.push_back(minman1);
+        // features.push_back(minman2);
         // features.push_back(dist_to_closest_river(board, side, score_cols));
         // features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
         for (size_t i = 0; i < features.size(); i++) {
             score += weights[i] * features[i];
         }
-        return 1;
+        return score;
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
-        cout<<moves<<endl;
         Board curboard = board;
         own_pieces.clear();
         opp_pieces.clear();
@@ -718,23 +718,24 @@ public:
         Move best_move;
         vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
-            int from_river_orient = 0;
-            if (!board[move.from[1]][move.from[0]].empty())
-            if (board[move.from[1]][move.from[0]].at("side") == "river") {
-                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
-                    from_river_orient = 1; // vertical orientation
-                } else {
-                    from_river_orient = 2;
-                }
-            }
-            validate_and_apply_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols);
-            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
-            reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
-        }
-        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-            return a.first > b.first;
-        });
-        for (auto [_, move]: visit_order) {
+        //     int from_river_orient = 0;
+        //     if (!board[move.from[1]][move.from[0]].empty())
+        //     if (board[move.from[1]][move.from[0]].at("side") == "river") {
+        //         if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+        //             from_river_orient = 1; // vertical orientation
+        //         } else {
+        //             from_river_orient = 2;
+        //         }
+        //     }
+        //     validate_and_apply_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols);
+        //     visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+        //     reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
+        // }
+        // if (depth != cutoffdepth - 1)
+        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+        //     return a.first > b.first;
+        // });
+        // for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
@@ -771,23 +772,24 @@ public:
         vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, opponent(side), row, col, score_cols)) {
             
-            int from_river_orient = 0;
-            if (!board[move.from[1]][move.from[0]].empty())
-            if (board[move.from[1]][move.from[0]].at("side") == "river") {
-                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
-                    from_river_orient = 1; // vertical orientation
-                } else {
-                    from_river_orient = 2;
-                }
-            }
-            validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
-            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
-            reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
-        }
-        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-            return a.first < b.first;
-        });
-        for (auto [_, move]: visit_order) {
+        //     int from_river_orient = 0;
+        //     if (!board[move.from[1]][move.from[0]].empty())
+        //     if (board[move.from[1]][move.from[0]].at("side") == "river") {
+        //         if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+        //             from_river_orient = 1; // vertical orientation
+        //         } else {
+        //             from_river_orient = 2;
+        //         }
+        //     }
+        //     validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
+        //     visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+        //     reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
+        // }
+        // if (depth != cutoffdepth - 1)
+        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+        //     return a.first < b.first;
+        // });
+        // for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
@@ -814,14 +816,12 @@ public:
         return {min_val, worst_move};
     }
 
-   
-
 private:
     string side;
     float m_current_player_time;
     float m_opponent_time;
     int moves = 0;
-    int cutoffdepth = 3;
+    int cutoffdepth = 2;
     set <pair<int,int>> own_pieces, opp_pieces;
     random_device rd;
     mt19937 gen;
