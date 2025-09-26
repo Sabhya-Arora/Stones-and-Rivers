@@ -313,6 +313,8 @@ vector<Move> generate_all_moves(
 
 pair<bool,string> validate_and_apply_move(
     Board& board,
+    set <pair<int,int>> &own_pieces,
+    set<pair<int,int>> &opp_pieces,
     const Move& move,
     const string& player,
     int rows, int cols,
@@ -341,6 +343,8 @@ pair<bool,string> validate_and_apply_move(
         if (board[ty][tx].empty()) {
             board[ty][tx] = piece;
             board[fy][fx].clear();
+            own_pieces.erase({fx,fy});
+            own_pieces.insert({tx,ty});
             return {true, "moved"};
         }
 
@@ -349,6 +353,15 @@ pair<bool,string> validate_and_apply_move(
 
         int ptx = move.pushed_to[0], pty = move.pushed_to[1];
         board[pty][ptx] = board[ty][tx];
+        if (board[ty][tx].at("owner") == player) {
+            own_pieces.erase({fx,fy});
+            own_pieces.insert({ptx,pty});
+        } else {
+            opp_pieces.erase({tx,ty});
+            opp_pieces.insert({ptx,pty});
+            own_peices.erase({fx,fy});
+            own_pieces.insert({tx,ty});
+        }
         board[ty][tx]  = piece;
         board[fy][fx].clear();
         return {true, "move+push applied"};
@@ -399,8 +412,18 @@ pair<bool,string> validate_and_apply_move(
 
         // Apply push
         board[py][px] = board[ty][tx];   // enemy goes to pushed_to
+        if (board[ty][tx].at("owner") == player) {
+            own_pieces.erase({fx,fy});
+            own_pieces.insert({px,py});
+        } else {
+            opp_pieces.erase({tx,ty});
+            opp_pieces.insert({px,py});
+            own_pieces.erase({fx,fy});
+            own_pieces.insert({tx,ty});
+        }
         board[ty][tx] = piece;           // mover goes into enemy's cell
         board[fy][fx].clear();           // origin cleared
+        
 
         auto& mover = board[ty][tx];
         if (mover.at("side") == "river") {
@@ -478,7 +501,7 @@ pair<bool,string> validate_and_apply_move(
     return {false,"unknown action"};
 }
 
-void reverse_move(Board& board, const Move& move, const string& player, int rows, int cols, const vector<int>& score_cols, int from_river_orient) {
+void reverse_move(Board& board, set <pair<int,int>> &own_pieces, set <pair<int,int>> &opp_pieces, const Move& move, const string& player, int rows, int cols, const vector<int>& score_cols, int from_river_orient) {
     const string& action = move.action;
 
     // ------------------ MOVE ------------------
@@ -489,6 +512,8 @@ void reverse_move(Board& board, const Move& move, const string& player, int rows
 
         board[fy][fx] = piece;
         board[ty][tx].clear();
+        own_pieces.erase({tx,ty});
+        own_pieces.insert({fx,fy});
     }
 
     // ------------------ PUSH ------------------
@@ -496,6 +521,15 @@ void reverse_move(Board& board, const Move& move, const string& player, int rows
         int fx = move.from[0], fy = move.from[1]; // can be stone or river
         int tx = move.to[0], ty = move.to[1];
         int px = move.pushed_to[0], py = move.pushed_to[1];
+        if (board[py][px].at("owner") == player) {
+            own_pieces.erase({px,py});
+            own_pieces.insert({fx,fy});
+        } else {
+            opp_pieces.erase({px,py});
+            opp_pieces.insert({tx,ty});
+            own_pieces.erase({tx,ty});
+            own_pieces.insert({fx,fy});
+        }
         if (from_river_orient == 1) {
             board[fy][fx] = board[ty][tx];
             board[fy][fx]["side"] = "river";
@@ -540,7 +574,7 @@ void reverse_move(Board& board, const Move& move, const string& player, int rows
     }
 }
 
-int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols, const string &side){
+int get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
     int total_dist = 0;
     int min_manhattan = rows + cols;
     int rows = board.size();
@@ -607,9 +641,23 @@ const vector<int>& score_cols)
 }
 
 
-int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
+int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
     int count = 0;
     for(auto piece : own_pieces) {
+        int x = piece.first.first;
+        int y = piece.first.second;
+        if (board[y][x].empty()) continue;
+        if (board[y][x].at("side") == "river") {
+            auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            for (auto [dx,dy]:flow) {
+                if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
+                    count++;
+                    break;
+                }
+            }
+        }
+    }
+    for (auto piece : opp_pieces) {
         int x = piece.first.first;
         int y = piece.first.second;
         if (board[y][x].empty()) continue;
@@ -646,19 +694,19 @@ public:
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
     vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -1, 1};
-    double evaluateBoard(const Board& board, int rows, int cols, const vector<int>& score_cols) {
+    double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
         vector<double> weights = {100, -0, 0, 0.0, 0.0};
         double score = 0;
-        auto [m1, total1] = count_reachable_in_one(board, side, rows, cols, score_cols);
-        auto [m2, total2] = count_reachable_in_one(board, opponent(side), rows, cols, score_cols);
+        auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
+        auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
         features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
         features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
         features.push_back(m1);
         features.push_back(m2);
         features.push_back(get_total_manhattan_dist(board, score_cols, side));
         features.push_back(get_total_manhattan_dist(board, score_cols, opponent(side)));
-        features.push_back(riversToGoal(board, side, rows, cols, score_cols));
-        features.push_back(riversToGoal(board, opponent(side), rows, cols, score_cols));
+        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
+        features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
         features.push_back(total1);
         features.push_back(total2);
         // features.push_back(dist_to_closest_river(board, side, score_cols));
@@ -671,6 +719,18 @@ public:
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
         Board curboard = board;
+        set <pair<int,int>> own_pieces, opp_pieces;
+        for (int y=0; y<row; y++) {
+            for (int x=0; x<col; x++) { 
+                if (!curboard[y][x].empty()) {
+                    if (curboard[y][x].at("owner") == side) {
+                        own_pieces.insert({x,y});
+                    } else {
+                        opp_pieces.insert({x,y});
+                    }
+                }
+            }
+        }
         return maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).second;
     }
 
