@@ -144,7 +144,7 @@ vector<pair<pair<int,int>, pair<int,int>>>>
 compute_valid_targets(
     const Board& board,
     int sx, int sy, const string& player,
-    int rows, int cols, const vector<int>& score_cols, const map <pair<int,int>,set<pair<int,int>>>& river_dests)
+    int rows, int cols, const vector<int>& score_cols, const map <pair<int,int>,vector<pair<int,int>>>& river_dests)
 {
     set<pair<int,int>> moves;  
     vector<pair<pair<int,int>, pair<int,int>>> pushes;
@@ -522,7 +522,7 @@ const set <pair<int,int>> &own_pieces,
 const string& player,
 int rows, int cols,
 const vector<int>& score_cols,
-const map<pair<int,int>,set<pair<int,int>>>& river_dests)
+const map<pair<int,int>,vector<pair<int,int>>>& river_dests)
 {
     int m = 0;
     int count = 0;
@@ -562,16 +562,15 @@ const map<pair<int,int>,set<pair<int,int>>>& river_dests)
 }
 
 
-int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols, map <pair<int,int>,set<pair<int,int>>>& river_dests) {
+int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols, map <pair<int,int>,vector<pair<int,int>>>& river_dests) {
     int count = 0;
     for(auto piece : own_pieces) {
         int x = piece.first;
         int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
-            auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
-            river_dests[{x,y}] = set<pair<int,int>>(flow.begin(), flow.end());
-            for (auto [dx,dy]:flow) {
+            river_dests[{x,y}] = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            for (auto [dx,dy] : river_dests[{x,y}]) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
                     count++;
                     break;
@@ -584,9 +583,8 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
-            auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
-            river_dests[{x,y}] = set<pair<int,int>>(flow.begin(), flow.end());
-            for (auto [dx,dy]:flow) {
+            river_dests[{x,y}] = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            for (auto [dx,dy]:river_dests[{x,y}]) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
                     count++;
                     break;
@@ -660,8 +658,8 @@ public:
 
     vector<double> weights = {1000, -1000, 100, -100, -1, 1, 15, -15, 1, -1, -2, 2};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
-        map<vector<int> , set<pair<int,int>>> river_dests_own = {}; 
-        map<vector<int> , set<pair<int,int>>> river_dests_opp = {};
+        map<pair<int> , vector<pair<int,int>>> river_dests_own = {}; 
+        map<pair<int> , vector<pair<int,int>>> river_dests_opp = {};
         vector<double> features;
         double score = 0;
         features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols, river_dests_own));
