@@ -73,7 +73,7 @@ bool is_own_score_cell(int x, int y, const string& player, int rows, int cols, c
 
 
 
-vector<pair<int,int>>& get_river_flow_destinations(
+vector<pair<int,int>> get_river_flow_destinations(
         const Board& board,
         int rx, int ry, int sx, int sy,
         const string& player, int rows, int cols,
@@ -656,10 +656,10 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 15, -15, 1, -1, -2, 2};
+    vector<double> weights = {15, -15, 1000, -1000, 100, -100, -1, 1, 2, -2, -1, 1};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
-        map<pair<int> , vector<pair<int,int>>> river_dests_own = {}; 
-        map<pair<int> , vector<pair<int,int>>> river_dests_opp = {};
+        map<pair<int, int> , vector<pair<int,int>>> river_dests_own;
+        map<pair<int, int> , vector<pair<int,int>>> river_dests_opp;
         vector<double> features;
         double score = 0;
         features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols, river_dests_own));
@@ -674,8 +674,8 @@ public:
         features.push_back(m2);
         features.push_back(totalman1);
         features.push_back(totalman2);
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
+        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols, river_dests_own));
+        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols, river_dests_opp));
         features.push_back(total1);
         features.push_back(total2);
         features.push_back(minman1);
