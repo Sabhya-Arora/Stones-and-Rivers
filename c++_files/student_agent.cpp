@@ -328,7 +328,6 @@ pair<bool,string> validate_and_apply_move(
         }
 
         int ptx = move.pushed_to[0], pty = move.pushed_to[1];
-        int dx = tx - fx, dy = ty - fy;
         board[pty][ptx] = board[ty][tx];
         board[ty][tx]  = piece;
         board[fy][fx].clear();
@@ -397,6 +396,67 @@ pair<bool,string> validate_and_apply_move(
     return {false,"unknown action"};
 }
 
+void reverse_move(Board& board, const Move& move, const string& player, int rows, int cols, const vector<int>& score_cols, int from_river_orient) {
+    const string& action = move.action;
+
+    // ------------------ MOVE ------------------
+    if (action == "move") {
+        int fx = move.from[0], fy = move.from[1];
+        int tx = move.to[0], ty = move.to[1];
+        auto& piece = board[ty][tx];
+
+        board[fy][fx] = piece;
+        board[ty][tx].clear();
+    }
+
+    // ------------------ PUSH ------------------
+    else if (action == "push") {
+        int fx = move.from[0], fy = move.from[1]; // can be stone or river
+        int tx = move.to[0], ty = move.to[1];
+        int px = move.pushed_to[0], py = move.pushed_to[1];
+        if (from_river_orient == 1) {
+            board[fy][fx] = board[ty][tx];
+            board[fy][fx]["side"] = "river";
+            board[fy][fx]["orientation"] = "vertical";
+            board[ty][tx] = board[py][px];
+            board[py][px].clear();
+        } else if (from_river_orient == 2) {
+            board[fy][fx] = board[ty][tx];
+            board[fy][fx]["side"] = "river";
+            board[fy][fx]["orientation"] = "horizontal";
+            board[ty][tx] = board[py][px];
+            board[py][px].clear();
+        } else {
+            board[fy][fx] = board[ty][tx];
+            board[ty][tx] = board[py][px];
+            board[py][px].clear();
+        }
+    }
+
+    // ------------------ FLIP ------------------
+    else if (action == "flip") {
+        int fx=move.from[0], fy=move.from[1];
+        auto& piece = board[fy][fx];
+
+        if (from_river_orient == 1) {
+            piece["side"] = "river";
+            piece["orientation"] = "vertical";
+        } else if (from_river_orient == 2) {
+            piece["side"] = "river";
+            piece["orientation"] = "horizontal";
+        } else {
+            piece["side"] = "stone";
+            piece["orientation"] = "";
+        }
+    } 
+
+    // ------------------ ROTATE ------------------
+    else if (action == "rotate") {
+        int fx=move.from[0], fy=move.from[1];
+        auto& piece = board[fy][fx];
+        piece["orientation"] = (piece["orientation"]=="vertical") ? "horizontal" : "vertical";
+    }
+}
 
 int get_total_manhattan_dist (const Board& board, const vector<int>& score_cols, const string &side){
     int total_dist = 0;
@@ -557,88 +617,7 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    int terminated(const Board& board, int rows, int cols, 
-               const std::vector<int>& score_cols) {
-        int own_score = countScoringPieces(board, side, rows, cols, score_cols);
-        int opp_score = countScoringPieces(board, opponent(side), rows, cols, score_cols);
-
-        // Check win by scoring 4 pieces
-        if (own_score == 4) return 1;  // circle wins
-        if (opp_score == 4) return 2;  // square wins
-
-        // Check timeouts
-        if (m_current_player_time <= 0 && m_opponent_time > 0) {
-            return 2;  // square wins
-        }
-        if (m_opponent_time <= 0 && m_current_player_time > 0) {
-            return 1;  // circle wins
-        }
-        if (m_current_player_time <= 0 && m_opponent_time <= 0) {
-            return 3;  // 3 = draw
-        }
-        if (moves >= 1000) {
-            return 3;  // draw
-        }
-        return 0; // game continues
-    }
-
-    map<string,double> compute_final_scores(
-    const Board& board,
-    optional<string> winner,
-    int rows, int cols,
-    const vector<int>& score_cols)
-    {
-        // --- Clock-based winner check ---
-        if (!winner.has_value()) {
-            double c_time = m_current_player_time;
-            double s_time = m_opponent_time;
-
-            if (c_time <= 0 && s_time > 0) {
-                winner = "square";
-            } else if (s_time <= 0 && c_time > 0) {
-                winner = "circle";
-            }
-            // if both <= 0 or both > 0, leave winner unchanged (draw case handled later)
-        }
-
-        // helper lambda to compute (n, m)
-        auto nm_for = [&](const string& player) -> pair<double,double> {
-            double n = static_cast<double>(countScoringPieces(board, player, rows, cols, score_cols));
-            auto [m, total] = count_reachable_in_one(board, player, rows, cols, score_cols);
-            return {n, m};
-        };
-
-        map<string,double> scores;
-        scores["circle"] = 0.0;
-        scores["square"] = 0.0;
-
-        if (winner.has_value() && (*winner == "circle" || *winner == "square")) {
-            string loser = opponent(*winner);
-            auto [n_loser, m_loser] = nm_for(loser);
-
-            double loser_score = n_loser + m_loser / 10.0;
-            double winner_score = 100.0 - loser_score;
-
-            scores[*winner] = winner_score;
-            scores[loser] = loser_score;
-        } else {
-            // draw case
-            constexpr double DRAW_SCORE = 30.0;
-            for (auto& player : {"circle", "square"}) {
-                auto [n_self, m_self] = nm_for(player);
-                auto [n_opp, m_opp] = nm_for(opponent(player));
-
-                double margin = 39.0 + ((n_self + m_self / 10.0) - (n_opp + m_opp / 10.0));
-                double total = DRAW_SCORE + margin / 4.0;
-                scores[player] = total;
-            }
-        }
-        scores["circle"] *= 100;
-        scores["square"] *= 100;   
-        return scores;
-    }
-
-    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 15, -15, 1, -1, -1, 1};
+    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -1, 1};
     double evaluateBoard(const Board& board, int rows, int cols, const vector<int>& score_cols) {
         vector<double> features;
         double score = 0;
@@ -654,8 +633,8 @@ public:
         features.push_back(riversToGoal(board, opponent(side), rows, cols, score_cols));
         features.push_back(total1);
         features.push_back(total2);
-        features.push_back(dist_to_closest_river(board, side, score_cols));
-        features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
+        // features.push_back(dist_to_closest_river(board, side, score_cols));
+        // features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
         for (size_t i = 0; i < features.size(); i++) {
             score += weights[i] * features[i];
         }
@@ -682,32 +661,46 @@ public:
         return move;
     }
 
-    pair<double, Move> maxValue(const Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
-        int winner = terminated(board, row, col, score_cols);
-        if (winner == 1) { // we win
-            return {compute_final_scores(board, side, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        } else if (winner == 2) { // opponent wins
-            return {compute_final_scores(board, opponent(side), row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        } else if (winner == 3) {
-            return {compute_final_scores(board, nullopt, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        }
+    pair<double, Move> maxValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
         if (depth == cutoffdepth) {
             return {evaluateBoard(board, row, col, score_cols), Move()}; // return dummy move
         }
         double max_val = -1e9;
         Move best_move;
-        vector<pair<Board, Move>> visit_order;
+        vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
-            Board new_board = board;
-            validate_and_apply_move(new_board, move, side, row, col, score_cols);
-            visit_order.push_back({new_board, move});
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, move, side, row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, row, col, score_cols), move});
+            reverse_move(board, move, side, row, col, score_cols, from_river_orient);
         }
-        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-        //     return evaluateBoard(a.first, row, col, score_cols) > evaluateBoard(b.first, row, col, score_cols);
-        // });
-        for (auto [board, move]:visit_order) {
+        if (depth == 0) {
+            sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+                return a.first > b.first;
+            });
+        }
+        for (auto [_, move]:visit_order) {
             moves++;
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, move, side, row, col, score_cols);
             double val = minValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+            reverse_move(board, move, side, row, col, score_cols, from_river_orient);
             moves--;
             alpha = max(alpha, val);
             if (val > max_val) {
@@ -716,36 +709,44 @@ public:
             }
             if (beta <= alpha) break;
         }
-
         return {max_val, best_move};
     }
 
-    pair<double, Move> minValue(const Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
-        int winner = terminated(board, row, col, score_cols);
-        if (winner == 1) { // we win
-            return {compute_final_scores(board, side, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        } else if (winner == 2) { // opponent wins
-            return {compute_final_scores(board, opponent(side), row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        } else if (winner == 3) {
-            return {compute_final_scores(board, nullopt, row, col, score_cols)[side == "circle" ? "circle" : "square"], Move()};
-        }
-        if (depth == cutoffdepth) {
-            return {evaluateBoard(board, row, col, score_cols), Move()};
-        }
+    pair<double, Move> minValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
         double min_val = 1e9;
         Move worst_move;
-        vector<pair<Board, Move>> visit_order;
+        vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, opponent(side), row, col, score_cols)) {
-            Board new_board = board;
-            validate_and_apply_move(new_board, move, opponent(side), row, col, score_cols);
-            visit_order.push_back({new_board, move});
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, move, opponent(side), row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, row, col, score_cols), move});
+            reverse_move(board, move, opponent(side), row, col, score_cols, from_river_orient);
         }
         // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
         //     return evaluateBoard(a.first, row, col, score_cols) < evaluateBoard(b.first, row, col, score_cols);
         // });
-        for (auto [board, move] : visit_order) {
+        for (auto [_, move] : visit_order) {
             moves++;
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, move, side, row, col, score_cols);
             double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+            reverse_move(board, move, opponent(side), row, col, score_cols, from_river_orient);
             moves--;
             beta = min(beta, val);
             if (val < min_val) {
