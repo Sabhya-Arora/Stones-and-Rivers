@@ -687,7 +687,7 @@ public:
                 return a.first > b.first;
             });
         }
-        for (auto [_, move]:visit_order) {
+        for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
@@ -707,12 +707,17 @@ public:
                 max_val = val;
                 best_move = move;
             }
-            if (beta <= alpha) break;
+            if (beta <= alpha) {
+                break;
+            }
         }
         return {max_val, best_move};
     }
 
     pair<double, Move> minValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        if (depth == cutoffdepth) {
+            return {evaluateBoard(board, row, col, score_cols), Move()}; // return dummy move
+        }
         double min_val = 1e9;
         Move worst_move;
         vector<pair<double, Move>> visit_order;
@@ -733,7 +738,7 @@ public:
         // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
         //     return evaluateBoard(a.first, row, col, score_cols) < evaluateBoard(b.first, row, col, score_cols);
         // });
-        for (auto [_, move] : visit_order) {
+        for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
@@ -744,7 +749,7 @@ public:
                     from_river_orient = 2;
                 }
             }
-            validate_and_apply_move(board, move, side, row, col, score_cols);
+            validate_and_apply_move(board, move, opponent(side), row, col, score_cols);
             double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
             reverse_move(board, move, opponent(side), row, col, score_cols, from_river_orient);
             moves--;
@@ -753,7 +758,9 @@ public:
                 min_val = val;
                 worst_move = move;
             }
-            if (beta <= alpha) break;
+            if (beta <= alpha) {
+                break;
+            }
         }
         return {min_val, worst_move};
     }
@@ -763,7 +770,7 @@ private:
     float m_current_player_time;
     float m_opponent_time;
     int moves = 0;
-    int cutoffdepth = 2;
+    int cutoffdepth = 3;
     random_device rd;
     mt19937 gen;
 };
