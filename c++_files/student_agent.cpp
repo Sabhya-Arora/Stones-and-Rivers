@@ -5,6 +5,8 @@
 #include <map>
 #include <random>
 #include <deque>
+#include <iostream>
+#include <queue>
 #include <algorithm>
 #include <set>
 namespace py = pybind11;
@@ -321,7 +323,6 @@ pair<bool,string> validate_and_apply_move(
     const vector<int>& score_cols)
 {
     const string& action = move.action;
-
     // ------------------ MOVE ------------------
     if (action == "move") {
         if (move.from.size() < 2 || move.to.size() < 2)
@@ -329,16 +330,7 @@ pair<bool,string> validate_and_apply_move(
 
         int fx = move.from[0], fy = move.from[1];
         int tx = move.to[0], ty = move.to[1];
-
-        if (!in_bounds(fx,fy,rows,cols) || !in_bounds(tx,ty,rows,cols))
-            return {false, "oob"};
-
-        if (is_opponent_score_cell(tx,ty,player,rows,cols,score_cols))
-            return {false, "can't go into opponent score"};
-
         auto& piece = board[fy][fx];
-        if (piece.empty() || piece.at("owner") != player)
-            return {false, "invalid piece"};
 
         if (board[ty][tx].empty()) {
             board[ty][tx] = piece;
@@ -348,23 +340,20 @@ pair<bool,string> validate_and_apply_move(
             return {true, "moved"};
         }
 
-        if (move.pushed_to.size() < 2)
-            return {false, "destination occupied; pushed_to required"};
-
-        int ptx = move.pushed_to[0], pty = move.pushed_to[1];
-        board[pty][ptx] = board[ty][tx];
-        if (board[ty][tx].at("owner") == player) {
-            own_pieces.erase({fx,fy});
-            own_pieces.insert({ptx,pty});
-        } else {
-            opp_pieces.erase({tx,ty});
-            opp_pieces.insert({ptx,pty});
-            own_peices.erase({fx,fy});
-            own_pieces.insert({tx,ty});
-        }
-        board[ty][tx]  = piece;
-        board[fy][fx].clear();
-        return {true, "move+push applied"};
+        // int ptx = move.pushed_to[0], pty = move.pushed_to[1];
+        // board[pty][ptx] = board[ty][tx];
+        // if (board[ty][tx].at("owner") == player) {
+        //     own_pieces.erase({fx,fy});
+        //     own_pieces.insert({ptx,pty});
+        // } else {
+        //     opp_pieces.erase({tx,ty});
+        //     opp_pieces.insert({ptx,pty});
+        //     own_pieces.erase({fx,fy});
+        //     own_pieces.insert({tx,ty});
+        // }
+        // board[ty][tx]  = piece;
+        // board[fy][fx].clear();
+        // return {true, "move+push applied"};
     }
 
     // ------------------ PUSH ------------------
@@ -376,39 +365,9 @@ pair<bool,string> validate_and_apply_move(
         int tx = move.to[0], ty = move.to[1];
         int px = move.pushed_to[0], py = move.pushed_to[1];
 
-        if (!(in_bounds(fx,fy,rows,cols) && in_bounds(tx,ty,rows,cols) && in_bounds(px,py,rows,cols)))
-            return {false, "oob"};
-
         string pushed_player = board[ty][tx].empty() ? "" : board[ty][tx].at("owner");
-        if (is_opponent_score_cell(tx,ty,player,rows,cols,score_cols) ||
-            (!pushed_player.empty() && is_opponent_score_cell(px,py,pushed_player,rows,cols,score_cols)))
-            return {false, "push would enter opponent score cell"};
 
         auto& piece = board[fy][fx];
-        if (piece.empty() || piece.at("owner") != player)
-            return {false, "invalid piece"};
-
-        if (board[ty][tx].empty())
-            return {false, "to must be occupied"};
-        if (!board[py][px].empty())
-            return {false, "pushed_to not empty"};
-
-        if (piece.at("side") == "river" && board[ty][tx].at("side") == "river")
-            return {false, "rivers cannot push rivers"};
-
-        auto [moves, pushes] = compute_valid_targets(board, fx, fy, player, rows, cols, score_cols);
-        bool valid_pair = false;
-        for (auto& push_pair : pushes) {
-            auto [of, pf] = push_pair;
-            if (of.first == tx && of.second == ty &&
-                pf.first == px && pf.second == py) {
-                valid_pair = true;
-                break;
-            }
-        }
-        if (!valid_pair) {
-            return {false, "push pair invalid"};
-        }
 
         // Apply push
         board[py][px] = board[ty][tx];   // enemy goes to pushed_to
@@ -439,29 +398,12 @@ pair<bool,string> validate_and_apply_move(
     else if (action == "flip") {
         if (move.from.size()<2) return {false, "flip needs from"};
         int fx=move.from[0], fy=move.from[1];
-        if (!in_bounds(fx,fy,rows,cols)) return {false, "oob"};
 
         auto& piece = board[fy][fx];
-        if (piece.empty() || piece.at("owner")!=player)
-            return {false, "invalid piece"};
 
         if (piece.at("side")=="stone") {
             string ori = move.orientation;
-            if (ori!="horizontal" && ori!="vertical")
-                return {false, "stone->river needs orientation"};
 
-            // temporarily flip to test safety
-            piece["side"]="river";
-            piece["orientation"]=ori;
-            auto flow = get_river_flow_destinations(board, fx, fy, fx, fy, player, rows, cols, score_cols);
-            piece["side"]="stone"; piece["orientation"]="";
-
-            for (auto [dx,dy]:flow) {
-                if (is_opponent_score_cell(dx,dy,player,rows,cols,score_cols))
-                    return {false, "flip would allow flow into opponent score"};
-            }
-
-            // commit flip
             piece["side"]="river";
             piece["orientation"]=ori;
             return {true, "flipped to river"};
@@ -476,25 +418,11 @@ pair<bool,string> validate_and_apply_move(
     else if (action == "rotate") {
         if (move.from.size()<2) return {false,"rotate needs from"};
         int fx=move.from[0], fy=move.from[1];
-        if (!in_bounds(fx,fy,rows,cols)) return {false,"oob"};
 
         auto& piece = board[fy][fx];
-        if (piece.empty() || piece.at("owner")!=player)
-            return {false, "invalid"};
-        if (piece.at("side")!="river")
-            return {false, "rotate only on river"};
 
         // flip orientation
         piece["orientation"] = (piece["orientation"]=="vertical") ? "horizontal" : "vertical";
-
-        auto flow = get_river_flow_destinations(board, fx, fy, fx, fy, player, rows, cols, score_cols);
-        for (auto [dx,dy]:flow) {
-            if (is_opponent_score_cell(dx,dy,player,rows,cols,score_cols)) {
-                // revert orientation
-                piece["orientation"] = (piece["orientation"]=="vertical") ? "horizontal" : "vertical";
-                return {false, "rotation allows flow into opponent score"};
-            }
-        }
         return {true, "rotated"};
     }
 
@@ -574,11 +502,11 @@ void reverse_move(Board& board, set <pair<int,int>> &own_pieces, set <pair<int,i
     }
 }
 
-int get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
+pair<int, int> get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
     int total_dist = 0;
-    int min_manhattan = rows + cols;
     int rows = board.size();
     int cols = board[0].size();
+    int min_manhattan = rows + cols;
     int score_row = (side=="circle") ? 2 : rows - 3; 
     for(auto piece : own_pieces) {
         int x = piece.first;
@@ -644,8 +572,8 @@ const vector<int>& score_cols)
 int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
     int count = 0;
     for(auto piece : own_pieces) {
-        int x = piece.first.first;
-        int y = piece.first.second;
+        int x = piece.first;
+        int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
             auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
@@ -658,8 +586,8 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         }
     }
     for (auto piece : opp_pieces) {
-        int x = piece.first.first;
-        int y = piece.first.second;
+        int x = piece.first;
+        int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
             auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
@@ -672,6 +600,47 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         }
     }
     return count;
+}
+
+int dist_to_closest_river (const Board& board, const string &player, const vector<int>& score_cols) {
+    int sum_dist = 0;
+    int rows = board.size();
+    int cols = board[0].size();
+    // multi-source BFS from all rivers
+    queue <pair<int,int>> q;
+    vector<vector<int>> dist(rows, vector<int>(cols, 1e9));
+    vector<vector<bool>> visited(rows, vector<bool>(cols, false));
+    for (int y=0; y<rows; y++) {
+        for (int x=0; x<cols; x++) {
+            if (!board[y][x].empty() && board[y][x].at("side") == "river"){
+                q.push({x,y});
+                dist[y][x] = 0;
+                visited[y][x] = true;
+            } 
+        }
+    }
+    vector<pair<int,int>> directions = {{1,0},{-1,0},{0,1},{0,-1}};
+    while (!q.empty()) {
+        auto [x,y] = q.front(); q.pop();
+        for (auto [dx,dy]:directions) {
+            int nx = x+dx, ny = y+dy;
+            if (in_bounds(nx, ny, rows, cols) && !visited[ny][nx]) {
+                visited[ny][nx] = true;
+                dist[ny][nx] = dist[y][x] + 1;
+                q.push({nx,ny}); 
+            }
+        }
+    }
+
+    for(int y=0; y<rows; y++) {
+        for(int x=0; x<cols; x++) {
+            if (!board[y][x].empty() && board[y][x].at("owner") == player && board[y][x].at("side") == "stone" && !is_own_score_cell(x,y,player,rows,cols,score_cols)) {
+                sum_dist += dist[y][x];
+            }
+        }
+    }
+    if(sum_dist >= 1e9) return 12*(rows + cols); 
+    return sum_dist;
 }
 
 
@@ -693,33 +662,39 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -1, 1};
+    vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -4, 4};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
-        vector<double> weights = {100, -0, 0, 0.0, 0.0};
+        vector<double> features;
         double score = 0;
         auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
         auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
+        auto [totalman1, minman1] = get_total_manhattan_dist(board, own_pieces, score_cols, side);
+        auto [totalman2, minman2] = get_total_manhattan_dist(board, opp_pieces, score_cols, opponent(side));
         features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
         features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
         features.push_back(m1);
         features.push_back(m2);
-        features.push_back(get_total_manhattan_dist(board, score_cols, side));
-        features.push_back(get_total_manhattan_dist(board, score_cols, opponent(side)));
+        features.push_back(totalman1);
+        features.push_back(totalman2);
         features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
         features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
         features.push_back(total1);
         features.push_back(total2);
+        features.push_back(minman1);
+        features.push_back(minman2);
         // features.push_back(dist_to_closest_river(board, side, score_cols));
         // features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
         for (size_t i = 0; i < features.size(); i++) {
             score += weights[i] * features[i];
         }
-        return score;
+        return 1;
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
+        cout<<moves<<endl;
         Board curboard = board;
-        set <pair<int,int>> own_pieces, opp_pieces;
+        own_pieces.clear();
+        opp_pieces.clear();
         for (int y=0; y<row; y++) {
             for (int x=0; x<col; x++) { 
                 if (!curboard[y][x].empty()) {
@@ -731,12 +706,13 @@ public:
                 }
             }
         }
+        moves += 1;
         return maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).second;
     }
 
     pair<double, Move> maxValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
         if (depth == cutoffdepth) {
-            return {evaluateBoard(board, row, col, score_cols), Move()}; // return dummy move
+            return {evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), Move()}; // return dummy move
         }
         double max_val = -1e9;
         Move best_move;
@@ -751,15 +727,13 @@ public:
                     from_river_orient = 2;
                 }
             }
-            validate_and_apply_move(board, move, side, row, col, score_cols);
-            visit_order.push_back({evaluateBoard(board, row, col, score_cols), move});
-            reverse_move(board, move, side, row, col, score_cols, from_river_orient);
+            validate_and_apply_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+            reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
         }
-        if (depth == 0) {
-            sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-                return a.first > b.first;
-            });
-        }
+        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+            return a.first > b.first;
+        });
         for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
@@ -771,9 +745,9 @@ public:
                     from_river_orient = 2;
                 }
             }
-            validate_and_apply_move(board, move, side, row, col, score_cols);
+            validate_and_apply_move(board,own_pieces, opp_pieces, move, side, row, col, score_cols);
             double val = minValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
-            reverse_move(board, move, side, row, col, score_cols, from_river_orient);
+            reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
             moves--;
             alpha = max(alpha, val);
             if (val > max_val) {
@@ -788,13 +762,15 @@ public:
     }
 
     pair<double, Move> minValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+        
         if (depth == cutoffdepth) {
-            return {evaluateBoard(board, row, col, score_cols), Move()}; // return dummy move
+            return {evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), Move()}; // return dummy move
         }
         double min_val = 1e9;
         Move worst_move;
         vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, opponent(side), row, col, score_cols)) {
+            
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
             if (board[move.from[1]][move.from[0]].at("side") == "river") {
@@ -804,13 +780,13 @@ public:
                     from_river_orient = 2;
                 }
             }
-            validate_and_apply_move(board, move, opponent(side), row, col, score_cols);
-            visit_order.push_back({evaluateBoard(board, row, col, score_cols), move});
-            reverse_move(board, move, opponent(side), row, col, score_cols, from_river_orient);
+            validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+            reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
         }
-        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-        //     return evaluateBoard(a.first, row, col, score_cols) < evaluateBoard(b.first, row, col, score_cols);
-        // });
+        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
         for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
@@ -822,9 +798,9 @@ public:
                     from_river_orient = 2;
                 }
             }
-            validate_and_apply_move(board, move, opponent(side), row, col, score_cols);
+            validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
             double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
-            reverse_move(board, move, opponent(side), row, col, score_cols, from_river_orient);
+            reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
             moves--;
             beta = min(beta, val);
             if (val < min_val) {
@@ -846,6 +822,7 @@ private:
     float m_opponent_time;
     int moves = 0;
     int cutoffdepth = 3;
+    set <pair<int,int>> own_pieces, opp_pieces;
     random_device rd;
     mt19937 gen;
 };
