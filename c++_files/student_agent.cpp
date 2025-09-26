@@ -71,16 +71,9 @@ bool is_own_score_cell(int x, int y, const string& player, int rows, int cols, c
     return is_opponent_score_cell(x, y, opponent(player), rows, cols, score_cols);
 }
 
-// Cell& find_cell (int x, int y, const map <pair<int,int>,Cell> &own_pieces, const map <pair<int,int>,Cell> &opponent_pieces) {
-//     auto it = own_pieces.find({x,y});
-//     if (it != own_pieces.end()) return it->second;
-//     it = opponent_pieces.find({x,y});
-//     if (it != opponent_pieces.end()) return it->second;
-//     return empty_cell;
-// }
 
 
-vector<pair<int,int>> get_river_flow_destinations(
+vector<pair<int,int>>& get_river_flow_destinations(
         const Board& board,
         int rx, int ry, int sx, int sy,
         const string& player, int rows, int cols,
@@ -151,7 +144,7 @@ vector<pair<pair<int,int>, pair<int,int>>>>
 compute_valid_targets(
     const Board& board,
     int sx, int sy, const string& player,
-    int rows, int cols, const vector<int>& score_cols)
+    int rows, int cols, const vector<int>& score_cols, const map <pair<int,int>,set<pair<int,int>>>& river_dests)
 {
     set<pair<int,int>> moves;  
     vector<pair<pair<int,int>, pair<int,int>>> pushes;
@@ -182,8 +175,7 @@ compute_valid_targets(
             moves.insert({tx,ty});
         } 
         else if (target.at("side") == "river") {
-            auto flow = get_river_flow_destinations(board, tx, ty, sx, sy, player, rows, cols, score_cols);
-            for (auto& d : flow) {
+            for (auto& d : river_dests.at({tx,ty})) {
                 moves.insert(d);
             }
         } 
@@ -529,7 +521,8 @@ const Board& board,
 const set <pair<int,int>> &own_pieces,
 const string& player,
 int rows, int cols,
-const vector<int>& score_cols)
+const vector<int>& score_cols,
+const map<pair<int,int>,set<pair<int,int>>>& river_dests)
 {
     int m = 0;
     int count = 0;
@@ -542,7 +535,7 @@ const vector<int>& score_cols)
             continue;
         }
         // compute valid targets
-        auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
+        auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols, river_dests);
         if(p.at("side")=="stone") count+=moves.size();
         // check moves
         bool found = false;
@@ -569,7 +562,7 @@ const vector<int>& score_cols)
 }
 
 
-int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
+int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols, map <pair<int,int>,set<pair<int,int>>>& river_dests) {
     int count = 0;
     for(auto piece : own_pieces) {
         int x = piece.first;
@@ -577,6 +570,7 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
             auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            river_dests[{x,y}] = set<pair<int,int>>(flow.begin(), flow.end());
             for (auto [dx,dy]:flow) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
                     count++;
@@ -591,6 +585,7 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
             auto flow = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
+            river_dests[{x,y}] = set<pair<int,int>>(flow.begin(), flow.end());
             for (auto [dx,dy]:flow) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
                     count++;
@@ -664,10 +659,14 @@ public:
 
     vector<double> weights = {1000, -1000, 100, -100, -1, 1, 30, -30, 2, -2, -4, 4};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
+        map<vector<int> , set<pair<int,int>>> river_dests_own = {}; 
+        map<vector<int> , set<pair<int,int>>> river_dests_opp = {};
         vector<double> features;
         double score = 0;
-        auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
-        auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
+        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols, river_dests_own));
+        features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols, river_dests_opp));
+        auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols, river_dests_own);
+        auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols, river_dests_opp);
         auto [totalman1, minman1] = get_total_manhattan_dist(board, own_pieces, score_cols, side);
         auto [totalman2, minman2] = get_total_manhattan_dist(board, opp_pieces, score_cols, opponent(side));
         features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
@@ -676,8 +675,6 @@ public:
         features.push_back(m2);
         features.push_back(totalman1);
         features.push_back(totalman2);
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
         features.push_back(total1);
         features.push_back(total2);
         features.push_back(minman1);
