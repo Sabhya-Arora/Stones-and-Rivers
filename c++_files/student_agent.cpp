@@ -700,6 +700,9 @@ public:
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
+        if (current_player_time < 5.0 && cutoffdepth == 2) {
+            cutoffdepth = 1;
+        }
         Board curboard = board;
         own_pieces.clear();
         opp_pieces.clear();
