@@ -718,60 +718,87 @@ public:
             }
         }
         moves += 1;
-        return maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).second;
+        if (curboard == last_board) {
+            moves_since_change += 1;
+            if (moves_since_change == repeat_limit) {
+                auto [[besteval, bestmove], [second_eval, second_move]] = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
+                if (besteval - second_eval < 100) {
+                    return last_move = second_move;
+                } else {
+                    return last_move = bestmove;
+                }
+            } else {
+                return last_move;
+            }
+        }
+        moves_since_change = 0;
+        last_board = curboard;
+        return last_move = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).first.second;
     }
 
-    pair<double, Move> maxValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
+    pair<pair<double, Move>, pair<double, Move>> maxValue(
+        Board& board,
+        int row, int col,
+        const vector<int>& score_cols,
+        int depth, double alpha, double beta
+    ) {
         if (depth == cutoffdepth) {
-            return {evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), Move()}; // return dummy move
+            // At leaf node → return evaluation only, dummy moves
+            double eval = evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols);
+            return {{eval, Move()}, {eval, Move()}};
         }
+
         double max_val = -1e9;
+        double second_max_val = -1e9;
         Move best_move;
-        vector<pair<double, Move>> visit_order;
+        Move second_best_move;
+
+        // Generate all moves for this player
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
-        //     int from_river_orient = 0;
-        //     if (!board[move.from[1]][move.from[0]].empty())
-        //     if (board[move.from[1]][move.from[0]].at("side") == "river") {
-        //         if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
-        //             from_river_orient = 1; // vertical orientation
-        //         } else {
-        //             from_river_orient = 2;
-        //         }
-        //     }
-        //     validate_and_apply_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols);
-        //     visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
-        //     reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
-        // }
-        // if (depth != cutoffdepth - 1)
-        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-        //     return a.first > b.first;
-        // });
-        // for (auto [_, move]: visit_order) {
             moves++;
+
+            // Remember the orientation of river if needed (for reversal)
             int from_river_orient = 0;
-            if (!board[move.from[1]][move.from[0]].empty())
-            if (board[move.from[1]][move.from[0]].at("side") == "river") {
-                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
-                    from_river_orient = 1; // vertical orientation
-                } else {
-                    from_river_orient = 2;
+            if (!board[move.from[1]][move.from[0]].empty()) {
+                if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                    from_river_orient = (board[move.from[1]][move.from[0]].at("orientation") == "vertical") ? 1 : 2;
                 }
             }
-            validate_and_apply_move(board,own_pieces, opp_pieces, move, side, row, col, score_cols);
+
+            // Apply move
+            validate_and_apply_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols);
+
+            // Recursive evaluation
             double val = minValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+
+            // Undo move
             reverse_move(board, own_pieces, opp_pieces, move, side, row, col, score_cols, from_river_orient);
             moves--;
-            alpha = max(alpha, val);
+
+            // Alpha-beta update
             if (val > max_val) {
+                // Shift current best to second best
+                second_max_val = max_val;
+                second_best_move = best_move;
+
+                // Update best
                 max_val = val;
                 best_move = move;
+            } else if (val > second_max_val) {
+                // Update second best only
+                second_max_val = val;
+                second_best_move = move;
             }
+
+            alpha = max(alpha, max_val);
             if (beta <= alpha) {
-                break;
+                break;  // prune
             }
         }
-        return {max_val, best_move};
+
+        return {{max_val, best_move}, {second_max_val, second_best_move}};
     }
+
 
     pair<double, Move> minValue(Board& board, int row, int col, const vector<int>& score_cols, int depth, double alpha, double beta) {
         
@@ -812,7 +839,7 @@ public:
                 }
             }
             validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
-            double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first;
+            double val = maxValue(board, row, col, score_cols, depth + 1, alpha, beta).first.first;
             reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
             moves--;
             beta = min(beta, val);
@@ -835,6 +862,10 @@ private:
     int cutoffdepth = 2;
     set <pair<int,int>> own_pieces, opp_pieces;
     random_device rd;
+    Board last_board;
+    Move last_move;
+    int repeat_limit = 100;
+    int moves_since_change = 0;
     mt19937 gen;
 };
 
