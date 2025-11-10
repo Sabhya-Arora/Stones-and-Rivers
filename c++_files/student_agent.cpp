@@ -721,7 +721,9 @@ public:
         if (curboard == last_board) {
             moves_since_change += 1;
             if (moves_since_change == repeat_limit) {
-                auto [[besteval, bestmove], [second_eval, second_move]] = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
+                pair<pair<double, Move>, pair<double, Move>> minimax = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
+                auto [besteval, bestmove] = minimax.first;
+                auto [second_eval, second_move] = minimax.second;
                 if (besteval - second_eval < 100) {
                     return last_move = second_move;
                 } else {
