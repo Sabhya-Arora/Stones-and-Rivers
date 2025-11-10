@@ -181,7 +181,7 @@ compute_valid_targets(
         } 
         else {
             // Stone occupied
-            if (p.at("side") == "stone") {
+            if (p.at("side") == "stone") { // stone moved to stone
                 int px = tx + dx, py = ty + dy;
                 if (in_bounds(px,py,rows,cols) &&
                     board[py][px].empty() &&
@@ -552,6 +552,17 @@ const map<pair<int,int>,vector<pair<int,int>>>& river_dests)
                 auto [ptx, pty] = push.second;
                 if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
                     m++;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            for (auto& push : pushes) {
+                auto [psx, psy] = push.first;
+                if (is_own_score_cell(psx, psy, player, rows, cols, score_cols)) {
+                    m++;
+                    found = true;
                     break;
                 }
             }
