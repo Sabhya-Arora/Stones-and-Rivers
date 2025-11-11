@@ -550,8 +550,8 @@ const vector<int>& score_cols)
             for (auto& [tx, ty] : moves) {
                 // Check if move ends in opponent’s half
                 bool in_opponent_half =
-                    (player == "circle" && ty >= rows / 2) ||
-                    (player == "square" && ty < rows / 2);
+                    (player == "circle" && ty < rows / 2) ||
+                    (player == "square" && ty > rows / 2);
 
                 // Check if move lies in scoring or adjacent columns
                 bool in_scoring_margin = false;
@@ -616,6 +616,9 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
+            if(is_own_score_cell(x,y,player,rows,cols,score_cols)) {
+                continue;
+            }
             auto river_dests = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
             for (auto [dx,dy] : river_dests) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
@@ -630,6 +633,9 @@ int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const
         int y = piece.second;
         if (board[y][x].empty()) continue;
         if (board[y][x].at("side") == "river") {
+            if(is_own_score_cell(x,y,opponent(player),rows,cols,score_cols)) {
+                continue;
+            }
             auto river_dests = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
             for (auto [dx,dy]:river_dests) {
                 if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
