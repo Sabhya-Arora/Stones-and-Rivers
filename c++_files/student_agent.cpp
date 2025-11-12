@@ -498,19 +498,19 @@ void reverse_move(Board& board, set <pair<int,int>> &own_pieces, set <pair<int,i
     }
 }
 
-pair<int, int> get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
-    int total_dist = 0;
+pair<double, double> get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
+    double total_dist = 0;
     int rows = board.size();
     int cols = board[0].size();
-    int min_manhattan = rows + cols;
+    double min_manhattan = rows + cols;
     int score_row = (side=="circle") ? 2 : rows - 3; 
     for(auto piece : own_pieces) {
         int x = piece.first;
         int y = piece.second;
         const auto& cell = piece.second;
-        int min_dist = cols + rows;
+        double min_dist = cols + rows;
         for (int sc : score_cols) {
-            min_dist = min(min_dist, abs(sc - x) + abs(score_row - y));
+            min_dist = min(min_dist, (double)abs(sc - x) + abs(score_row - y));
         }
         total_dist += 1 / (min_dist + 1);
         min_manhattan = min(min_manhattan, min_dist);
@@ -520,92 +520,92 @@ pair<int, int> get_total_manhattan_dist (const Board& board, const set<pair<int,
 
 
 
-pair<int,int> count_reachable_in_one(
-const Board& board,
-const set <pair<int,int>> &own_pieces,
-const string& player,
-int rows, int cols,
-const vector<int>& score_cols)
-{
-    int m = 0;
-    int count = 0;
-    for(auto piece : own_pieces){
-        int x = piece.first;
-        int y = piece.second;
-        const auto& p = board[y][x];
-        // already in own scoring area → skip
-        if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
-            continue;
-        }
-        // compute valid targets
-        auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
-        if (p.at("side") == "stone") {
-            // Count how many valid moves (targets) for this stone lie
-            //   - in the opponent’s half of the board (i.e. across the river)
-            //   - and within scoring-related columns (the scoring columns themselves,
-            //     plus one-column margin on either side).
-            //
-            // This measures "offensive reach" — how many cells this stone could reach
-            // in one move that advance it toward the opponent’s scoring area.
-            for (auto& [tx, ty] : moves) {
-                // Check if move ends in opponent’s half
-                bool in_opponent_half =
-                    (player == "circle" && ty < rows / 2) ||
-                    (player == "square" && ty > rows / 2);
+// pair<int,int> count_reachable_in_one(
+// const Board& board,
+// const set <pair<int,int>> &own_pieces,
+// const string& player,
+// int rows, int cols,
+// const vector<int>& score_cols)
+// {
+//     int m = 0;
+//     int count = 0;
+//     for(auto piece : own_pieces){
+//         int x = piece.first;
+//         int y = piece.second;
+//         const auto& p = board[y][x];
+//         // already in own scoring area → skip
+//         if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
+//             continue;
+//         }
+//         // compute valid targets
+//         auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
+//         if (p.at("side") == "stone") {
+//             // Count how many valid moves (targets) for this stone lie
+//             //   - in the opponent’s half of the board (i.e. across the river)
+//             //   - and within scoring-related columns (the scoring columns themselves,
+//             //     plus one-column margin on either side).
+//             //
+//             // This measures "offensive reach" — how many cells this stone could reach
+//             // in one move that advance it toward the opponent’s scoring area.
+//             for (auto& [tx, ty] : moves) {
+//                 // Check if move ends in opponent’s half
+//                 bool in_opponent_half =
+//                     (player == "circle" && ty < rows / 2) ||
+//                     (player == "square" && ty > rows / 2);
 
-                // Check if move lies in scoring or adjacent columns
-                bool in_scoring_margin = false;
-                for (int sc : score_cols) {
-                    if (abs(tx - sc) <= 1) {  // 1-column margin
-                        in_scoring_margin = true;
-                        break;
-                    }
-                }
+//                 // Check if move lies in scoring or adjacent columns
+//                 bool in_scoring_margin = false;
+//                 for (int sc : score_cols) {
+//                     if (abs(tx - sc) <= 1) {  // 1-column margin
+//                         in_scoring_margin = true;
+//                         break;
+//                     }
+//                 }
 
-                if (in_opponent_half && in_scoring_margin) {
-                    count++;
-                }
-            }
-        }
+//                 if (in_opponent_half && in_scoring_margin) {
+//                     count++;
+//                 }
+//             }
+//         }
 
-        // check moves
-        bool found = false;
-        for (auto& [tx, ty] : moves) {
-            if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
-                m++;
-                found = true;
-                break;
-            }
-        }
-        // if no direct moves, check pushes
-        if (p.at("side")=="river" &&  (!found)) {
-            for (auto& push : pushes) {
-                auto [ptx, pty] = push.second;
-                if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
-                    m++;
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if (!found) {
-            for (auto& push : pushes) {
-                auto [psx, psy] = push.first;
-                auto [ptx, pty] = push.second;
-                if (is_own_score_cell(psx, psy, player, rows, cols, score_cols)) {
-                    if (!board[psy][psx].empty()) {
-                        if (!is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) continue;
-                    }
-                    m++;
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
+//         // check moves
+//         bool found = false;
+//         for (auto& [tx, ty] : moves) {
+//             if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
+//                 m++;
+//                 found = true;
+//                 break;
+//             }
+//         }
+//         // if no direct moves, check pushes
+//         if (p.at("side")=="river" &&  (!found)) {
+//             for (auto& push : pushes) {
+//                 auto [ptx, pty] = push.second;
+//                 if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
+//                     m++;
+//                     found = true;
+//                     break;
+//                 }
+//             }
+//         }
+//         if (!found) {
+//             for (auto& push : pushes) {
+//                 auto [psx, psy] = push.first;
+//                 auto [ptx, pty] = push.second;
+//                 if (is_own_score_cell(psx, psy, player, rows, cols, score_cols)) {
+//                     if (!board[psy][psx].empty()) {
+//                         if (!is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) continue;
+//                     }
+//                     m++;
+//                     found = true;
+//                     break;
+//                 }
+//             }
+//         }
+//     }
 
-    return {m, count};
-}
+//     return {m, count};
+// }
 
 
 
@@ -709,6 +709,317 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
     return countstones + countriver;
 }
 
+int countBorderPieces(const Board& board, const string& player, int rows, int cols, const set<pair<int,int>> &own_pieces) {
+    int count = 0;
+    for (auto piece : own_pieces) {
+        int x = piece.first;
+        int y = piece.second;
+        if (x == 0 || x == cols - 1 || (player == "circle" ? (y == rows - 1) : (y == 0))) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int riversToGoalLite(const Board& board, const set<pair<int,int>> &own_pieces,
+                     const string& player, int rows, int cols,
+                     const vector<int>& score_cols) {
+    int score = 0;
+
+    for (auto piece : own_pieces) {
+        int x = piece.first;
+        int y = piece.second;
+
+        if (board[y][x].empty()) continue;
+        if (board[y][x].at("side") != "river") continue;
+        if (is_own_score_cell(x, y, player, rows, cols, score_cols)) continue;
+
+        // Determine flow directions based on orientation
+        vector<pair<int,int>> dirs = 
+            (board[y][x].at("orientation") == "horizontal") ? 
+                vector<pair<int,int>>{{1,0}, {-1,0}} :
+                vector<pair<int,int>>{{0,1}, {0,-1}};
+
+        int blocker_count = 0;
+        int temp_count = 0;
+        // Look in both directions along the river
+        for (auto [dx, dy] : dirs) {
+            bool goal_direction = false;
+            int nx = x + dx, ny = y + dy;
+            while (in_bounds(nx, ny, rows, cols)) {
+                if (is_opponent_score_cell(nx, ny, player, rows, cols, score_cols)) {
+                    goal_direction = true;
+                    break;
+                }
+
+                if (!board[ny][nx].empty()) {
+                    const auto& cell = board[ny][nx];
+
+                    // If it’s an opponent stone or a river flowing the wrong way → blocker
+                    if (cell.at("owner") != player ||
+                        (cell.at("side") == "river" && 
+                         cell.at("orientation") != board[y][x].at("orientation"))) {
+                        temp_count++;
+                        break;
+                    }
+                }
+                nx += dx;
+                ny += dy;
+            }
+            if (goal_direction) {
+                blocker_count += temp_count;
+            } else {
+                blocker_count = 3; // No path to goal in this direction
+            }
+        }
+
+        // Assign weights depending on how open the flow line is
+        if (blocker_count == 0) score += 4;   // completely open lane
+        else if (blocker_count == 1) score += 2; // slightly blocked
+        else if (blocker_count == 2) score += 1; // quite obstructed
+
+    }
+
+    return score;
+}
+
+int own_scoring_row(const string& player, int rows) {
+    return (player == "circle") ? 2 : rows - 3;
+}
+
+int count_reachable_in_one(
+    const Board& board,
+    const set<pair<int,int>> &own_pieces,
+    const string& player,
+    int rows, int cols,
+    const vector<int>& score_cols) {
+    int count = 0;
+    for (auto piece : own_pieces) {
+        int x = piece.first;
+        int y = piece.second;
+        if(is_own_score_cell(x,y,player,rows,cols,score_cols)) continue;
+        vector<pair<int,int>> dirs = {{1,0}, {-1,0}, {0,1}, {0,-1}};
+        bool reachable = false;
+        for (auto [dx,dy] : dirs) {
+            int tx = x + dx, ty = y + dy;
+            if(!in_bounds(tx,ty,rows,cols)) continue;
+            if (board[ty][tx].empty() && is_own_score_cell(tx,ty,player,rows,cols,score_cols)) {
+                reachable = true;
+                break;
+            } 
+        }
+        if(reachable){
+            count++;
+            continue;
+        }
+        if (board[y][x].at("side")=="stone") {
+            for(auto[dx,dy] : dirs){
+                int tx = x + dx, ty = y + dy;
+                if(!in_bounds(tx,ty,rows,cols)) continue;
+                if(is_own_score_cell(tx,ty, opponent(player),rows,cols,score_cols)) continue;
+                if(!board[ty][tx].empty() && board[ty][tx].at("side")=="stone"){
+                    int px = tx + dx, py = ty + dy;
+                    if(in_bounds(px,py,rows,cols) && board[py][px].empty() && is_own_score_cell(px,py,player,rows,cols,score_cols) && is_own_score_cell(tx,ty,player,rows,cols,score_cols)){
+                        reachable = true;
+                        break;
+                    }
+                }
+                if(!board[ty][tx].empty() && board[ty][tx].at("side")=="river"){
+
+                    // check along direction of river if there is a path to score cell
+                    string orientation = board[ty][tx].at("orientation");
+                    if(orientation=="horizontal"){
+                        if(ty==own_scoring_row(player,rows)){
+                            for(int i = tx+1; i<=score_cols.back(); i++){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                            if(reachable) break;
+                            for(int i = tx-1; i>=score_cols.front(); i--){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                        }
+                    }
+                    else{
+                        if(tx<= score_cols.back() && tx >= score_cols.front() && board[own_scoring_row(player,rows)][tx].empty()){
+                            for(int i = ty+1; i<=own_scoring_row(player,rows); i++){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(tx==x && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                            if(reachable) break;
+                            for(int i = ty-1; i>=own_scoring_row(player,rows); i--){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(tx==x && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                        }   
+                    }
+                }
+
+            }
+        }
+        if(reachable){
+            count++;
+            continue;
+        }
+        if(board[y][x].at("side")=="river"){
+            for(auto[dx,dy] : dirs){
+                int tx = x + dx, ty = y + dy;
+                if(!in_bounds(tx,ty,rows,cols)) continue;
+                if(is_own_score_cell(tx,ty,opponent(player),rows,cols,score_cols)) continue;
+                if(!board[ty][tx].empty() && board[ty][tx].at("side")=="stone"){
+                    if(board[y][x].at("orientation")=="horizontal"){
+                        if(ty==own_scoring_row(player,rows)){
+                            for(int i = tx+1; i<=score_cols.back(); i++){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                            if(reachable) break;
+                            for(int i = tx-1; i>=score_cols.front(); i--){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                        }
+                    }
+                    else{
+                        if(tx<= score_cols.back() && tx >= score_cols.front() && board[own_scoring_row(player,rows)][tx].empty()){
+                            for(int i = ty+1; i<=own_scoring_row(player,rows); i++){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(x==tx && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                            if(reachable) break;
+                            for(int i = ty-1; i>=own_scoring_row(player,rows); i--){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(x==tx && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                        }
+                    }
+                }
+                if(reachable){
+                    break;
+                }
+                if(!board[ty][tx].empty() && board[ty][tx].at("side")=="river"){
+                    string orientation = board[ty][tx].at("orientation");
+                    if(orientation=="horizontal"){
+                        if(ty==own_scoring_row(player,rows)){
+                            for(int i = tx+1; i<=score_cols.back(); i++){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                            if(reachable) break;
+                            for(int i = tx-1; i>=score_cols.front(); i--){
+                                if(board[ty][i].empty() && is_own_score_cell(i,ty,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(board[ty][i].empty()) continue;
+                                if(ty==y && i==x) continue;
+                                if(board[ty][i].at("side")=="stone") break;
+                                if(board[ty][i].at("side")=="river" && board[ty][i].at("orientation")=="vertical") break;
+                            }
+                        }
+                    }
+                    else{
+                        if(tx<= score_cols.back() && tx >= score_cols.front() && board[own_scoring_row(player,rows)][tx].empty()){
+                            for(int i = ty+1; i<=own_scoring_row(player,rows); i++){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(x==tx && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                            if(reachable) break;
+                            for(int i = ty-1; i>=own_scoring_row(player,rows); i--){
+                                if(board[i][tx].empty() && is_own_score_cell(tx,i,player,rows,cols,score_cols)){
+                                    reachable = true;
+                                    break;
+                                }
+                                if(i==own_scoring_row(opponent(player),rows)) break;
+                                if(board[i][tx].empty()) continue;
+                                if(x==tx && i==y) continue;
+                                if(board[i][tx].at("side")=="stone") break;
+                                if(board[i][tx].at("side")=="river" && board[i][tx].at("orientation")=="horizontal") break;
+                            }
+                        }
+                    }
+                }
+                if(reachable){
+                    break;
+                }
+            }
+        }
+        if(reachable){
+            count++;
+            continue;
+        }
+    }
+    return count;
+    }
+
+
+
 
 // ---- Student Agent ----
 class StudentAgent {
@@ -716,28 +1027,38 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    vector<double> weights = {25, -25, 1000, -1000, 200, -200, -1, 1, 10, -10, -50, 50};
+    vector<double> weights = {60, -60, 1000, -1000, 200, -200, 1,-1, 10, -10, -50, 50, -40, 40};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
         vector<double> features;
         double score = 0;
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
-        features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
-        auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
-        auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
+        features.push_back(0);
+        features.push_back(0);
+
+        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
+        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
+        // auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
+        // auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
         auto [totalman1, minman1] = get_total_manhattan_dist(board, own_pieces, score_cols, side);
         auto [totalman2, minman2] = get_total_manhattan_dist(board, opp_pieces, score_cols, opponent(side));
         features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
         features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
-        features.push_back(m1);
-        features.push_back(m2);
+        // features.push_back(m1);
+        // features.push_back(m2);
+        features.push_back(0);
+        features.push_back(0);
         features.push_back(totalman1);
         features.push_back(totalman2);
-        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols, river_dests_own));
-        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols, river_dests_opp));
-        features.push_back(total1);
-        features.push_back(total2);
+        // features.push_back(total1);
+        // features.push_back(total2);
+        features.push_back(0);
+        features.push_back(0);
+
         features.push_back(minman1);
         features.push_back(minman2);
+        int borderpiecesown = countBorderPieces(board, side, rows, cols, own_pieces);
+        int borderpiecesopp = countBorderPieces(board, opponent(side), rows, cols, opp_pieces);
+        features.push_back(borderpiecesown);
+        features.push_back(borderpiecesopp);
         // features.push_back(dist_to_closest_river(board, side, score_cols));
         // features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
         for (size_t i = 0; i < features.size(); i++) {
@@ -747,7 +1068,7 @@ public:
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
-        if (current_player_time < 5.0 && cutoffdepth == 2) {
+        if (current_player_time < 5.0 && cutoffdepth == 3) {
             cutoffdepth = 1;
         }
         Board curboard = board;
@@ -771,7 +1092,7 @@ public:
                 pair<pair<double, Move>, pair<double, Move>> minimax = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
                 auto [besteval, bestmove] = minimax.first;
                 auto [second_eval, second_move] = minimax.second;
-                if (besteval - second_eval < 100) {
+                if (besteval - second_eval < 200) {
                     return last_move = second_move;
                 } else {
                     return last_move = bestmove;
@@ -782,7 +1103,10 @@ public:
         }
         moves_since_change = 0;
         last_board = curboard;
-        return last_move = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).first.second;
+        cout<<"Move played by depth 3"<<endl;
+        auto [eval, played_move] = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).first;
+        cout << "Evaluation Score: " << eval << endl;
+        return last_move = played_move;
     }
 
     pair<pair<double, Move>, pair<double, Move>> maxValue(
@@ -801,9 +1125,27 @@ public:
         double second_max_val = -1e9;
         Move best_move;
         Move second_best_move;
-
+        vector<pair<double, Move>> visit_order;
         // Generate all moves for this player
         for (const auto& move : generate_all_moves(board, side, row, col, score_cols)) {
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, own_pieces, opp_pieces, move, (side), row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+            reverse_move(board, own_pieces, opp_pieces, move, (side), row, col, score_cols, from_river_orient);
+        }
+        if (depth != cutoffdepth - 1)
+        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+        for (auto [_, move]: visit_order) {
             moves++;
 
             // Remember the orientation of river if needed (for reversal)
@@ -859,24 +1201,24 @@ public:
         vector<pair<double, Move>> visit_order;
         for (const auto& move : generate_all_moves(board, opponent(side), row, col, score_cols)) {
             
-        //     int from_river_orient = 0;
-        //     if (!board[move.from[1]][move.from[0]].empty())
-        //     if (board[move.from[1]][move.from[0]].at("side") == "river") {
-        //         if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
-        //             from_river_orient = 1; // vertical orientation
-        //         } else {
-        //             from_river_orient = 2;
-        //         }
-        //     }
-        //     validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
-        //     visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
-        //     reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
-        // }
-        // if (depth != cutoffdepth - 1)
-        // sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-        //     return a.first < b.first;
-        // });
-        // for (auto [_, move]: visit_order) {
+            int from_river_orient = 0;
+            if (!board[move.from[1]][move.from[0]].empty())
+            if (board[move.from[1]][move.from[0]].at("side") == "river") {
+                if (board[move.from[1]][move.from[0]].at("orientation") == "vertical") {
+                    from_river_orient = 1; // vertical orientation
+                } else {
+                    from_river_orient = 2;
+                }
+            }
+            validate_and_apply_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols);
+            visit_order.push_back({evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols), move});
+            reverse_move(board, opp_pieces, own_pieces, move, opponent(side), row, col, score_cols, from_river_orient);
+        }
+        if (depth != cutoffdepth - 1)
+        sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+        for (auto [_, move]: visit_order) {
             moves++;
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
@@ -908,7 +1250,7 @@ private:
     float m_current_player_time;
     float m_opponent_time;
     int moves = 0;
-    int cutoffdepth = 2;
+    int cutoffdepth = 3;
     set <pair<int,int>> own_pieces, opp_pieces;
     random_device rd;
     Board last_board;
