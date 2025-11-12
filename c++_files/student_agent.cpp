@@ -507,7 +507,6 @@ pair<double, double> get_total_manhattan_dist (const Board& board, const set<pai
     for(auto piece : own_pieces) {
         int x = piece.first;
         int y = piece.second;
-        const auto& cell = piece.second;
         double min_dist = cols + rows;
         for (int sc : score_cols) {
             min_dist = min(min_dist, (double)abs(sc - x) + abs(score_row - y));
@@ -515,178 +514,7 @@ pair<double, double> get_total_manhattan_dist (const Board& board, const set<pai
         total_dist += 1 / (min_dist + 1);
         min_manhattan = min(min_manhattan, min_dist);
     }
-    return {60 * total_dist, min_manhattan};
-}
-
-
-
-// pair<int,int> count_reachable_in_one(
-// const Board& board,
-// const set <pair<int,int>> &own_pieces,
-// const string& player,
-// int rows, int cols,
-// const vector<int>& score_cols)
-// {
-//     int m = 0;
-//     int count = 0;
-//     for(auto piece : own_pieces){
-//         int x = piece.first;
-//         int y = piece.second;
-//         const auto& p = board[y][x];
-//         // already in own scoring area → skip
-//         if (is_own_score_cell(x, y, player, rows, cols, score_cols)) {
-//             continue;
-//         }
-//         // compute valid targets
-//         auto [moves, pushes] = compute_valid_targets(board, x, y, player, rows, cols, score_cols);
-//         if (p.at("side") == "stone") {
-//             // Count how many valid moves (targets) for this stone lie
-//             //   - in the opponent’s half of the board (i.e. across the river)
-//             //   - and within scoring-related columns (the scoring columns themselves,
-//             //     plus one-column margin on either side).
-//             //
-//             // This measures "offensive reach" — how many cells this stone could reach
-//             // in one move that advance it toward the opponent’s scoring area.
-//             for (auto& [tx, ty] : moves) {
-//                 // Check if move ends in opponent’s half
-//                 bool in_opponent_half =
-//                     (player == "circle" && ty < rows / 2) ||
-//                     (player == "square" && ty > rows / 2);
-
-//                 // Check if move lies in scoring or adjacent columns
-//                 bool in_scoring_margin = false;
-//                 for (int sc : score_cols) {
-//                     if (abs(tx - sc) <= 1) {  // 1-column margin
-//                         in_scoring_margin = true;
-//                         break;
-//                     }
-//                 }
-
-//                 if (in_opponent_half && in_scoring_margin) {
-//                     count++;
-//                 }
-//             }
-//         }
-
-//         // check moves
-//         bool found = false;
-//         for (auto& [tx, ty] : moves) {
-//             if (is_own_score_cell(tx, ty, player, rows, cols, score_cols)) {
-//                 m++;
-//                 found = true;
-//                 break;
-//             }
-//         }
-//         // if no direct moves, check pushes
-//         if (p.at("side")=="river" &&  (!found)) {
-//             for (auto& push : pushes) {
-//                 auto [ptx, pty] = push.second;
-//                 if (is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) {
-//                     m++;
-//                     found = true;
-//                     break;
-//                 }
-//             }
-//         }
-//         if (!found) {
-//             for (auto& push : pushes) {
-//                 auto [psx, psy] = push.first;
-//                 auto [ptx, pty] = push.second;
-//                 if (is_own_score_cell(psx, psy, player, rows, cols, score_cols)) {
-//                     if (!board[psy][psx].empty()) {
-//                         if (!is_own_score_cell(ptx, pty, player, rows, cols, score_cols)) continue;
-//                     }
-//                     m++;
-//                     found = true;
-//                     break;
-//                 }
-//             }
-//         }
-//     }
-
-//     return {m, count};
-// }
-
-
-
-int riversToGoal(const Board& board,const set <pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
-    int count = 0;
-    for(auto piece : own_pieces) {
-        int x = piece.first;
-        int y = piece.second;
-        if (board[y][x].empty()) continue;
-        if (board[y][x].at("side") == "river") {
-            if(is_own_score_cell(x,y,player,rows,cols,score_cols)) {
-                continue;
-            }
-            auto river_dests = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
-            for (auto [dx,dy] : river_dests) {
-                if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
-                    count++;
-                    break;
-                }
-            }
-        }
-    }
-    for (auto piece : opp_pieces) {
-        int x = piece.first;
-        int y = piece.second;
-        if (board[y][x].empty()) continue;
-        if (board[y][x].at("side") == "river") {
-            if(is_own_score_cell(x,y,opponent(player),rows,cols,score_cols)) {
-                continue;
-            }
-            auto river_dests = get_river_flow_destinations(board, x, y, -1, -1, player, rows, cols, score_cols);
-            for (auto [dx,dy]:river_dests) {
-                if (is_own_score_cell(dx,dy,player,rows,cols,score_cols)) {
-                    count++;
-                    break;
-                }
-            }
-        }
-    }
-    return count;
-}
-
-int dist_to_closest_river (const Board& board, const string &player, const vector<int>& score_cols) {
-    int sum_dist = 0;
-    int rows = board.size();
-    int cols = board[0].size();
-    // multi-source BFS from all rivers
-    queue <pair<int,int>> q;
-    vector<vector<int>> dist(rows, vector<int>(cols, 1e9));
-    vector<vector<bool>> visited(rows, vector<bool>(cols, false));
-    for (int y=0; y<rows; y++) {
-        for (int x=0; x<cols; x++) {
-            if (!board[y][x].empty() && board[y][x].at("side") == "river"){
-                q.push({x,y});
-                dist[y][x] = 0;
-                visited[y][x] = true;
-            } 
-        }
-    }
-    vector<pair<int,int>> directions = {{1,0},{-1,0},{0,1},{0,-1}};
-    while (!q.empty()) {
-        auto [x,y] = q.front(); q.pop();
-        for (auto [dx,dy]:directions) {
-            int nx = x+dx, ny = y+dy;
-            if (in_bounds(nx, ny, rows, cols) && !visited[ny][nx]) {
-                visited[ny][nx] = true;
-                dist[ny][nx] = dist[y][x] + 1;
-                q.push({nx,ny}); 
-            }
-        }
-    }
-
-    for(int y=0; y<rows; y++) {
-        for(int x=0; x<cols; x++) {
-            if (!board[y][x].empty() && board[y][x].at("owner") == player && board[y][x].at("side") == "stone" && !is_own_score_cell(x,y,player,rows,cols,score_cols)) {
-                sum_dist += dist[y][x];
-            }
-        }
-    }
-    if(sum_dist >= 1e9) return 12*(rows + cols); 
-    return sum_dist;
+    return {40 * total_dist, min_manhattan};
 }
 
 
@@ -700,7 +528,7 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
         }
     } 
     if (countstones + countriver == 4) {
-        if (countstones == 4) return 20;
+        if (countstones == 4) return 40;
         else if (countstones == 3 && countriver == 1) return 15;
         else if (countstones == 2 && countriver == 2) return 10;
         else if (countstones == 1 && countriver == 3) return 7;
@@ -714,7 +542,7 @@ int countBorderPieces(const Board& board, const string& player, int rows, int co
     for (auto piece : own_pieces) {
         int x = piece.first;
         int y = piece.second;
-        if (x == 0 || x == cols - 1 || (player == "circle" ? (y == rows - 1) : (y == 0))) {
+        if (x == 0 || x == cols - 1 || (player == "circle" ? y == rows - 1 : y == 0)) {
             count++;
         }
     }
@@ -1016,10 +844,7 @@ int count_reachable_in_one(
         }
     }
     return count;
-    }
-
-
-
+}
 
 // ---- Student Agent ----
 class StudentAgent {
@@ -1120,7 +945,6 @@ public:
             double eval = evaluateBoard(board, own_pieces, opp_pieces, row, col, score_cols);
             return {{eval, Move()}, {eval, Move()}};
         }
-
         double max_val = -1e9;
         double second_max_val = -1e9;
         Move best_move;
@@ -1143,11 +967,13 @@ public:
         }
         if (depth != cutoffdepth - 1)
         sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
-            return a.first < b.first;
+            return a.first > b.first;
         });
-        for (auto [_, move]: visit_order) {
+        for (auto [value, move]: visit_order) {
             moves++;
-
+            if (value > 20000) { // Winning move found
+                return {{value, move}, {value, move}};
+            }
             // Remember the orientation of river if needed (for reversal)
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty()) {
@@ -1183,6 +1009,7 @@ public:
 
             alpha = max(alpha, max_val);
             if (beta <= alpha) {
+                pruned++;
                 break;  // prune
             }
         }
@@ -1218,8 +1045,11 @@ public:
         sort(visit_order.begin(), visit_order.end(), [&](const auto& a, const auto& b) {
             return a.first < b.first;
         });
-        for (auto [_, move]: visit_order) {
+        for (auto [value, move]: visit_order) {
             moves++;
+            if (value < -20000) { // Losing move found
+                return {value, move};
+            }
             int from_river_orient = 0;
             if (!board[move.from[1]][move.from[0]].empty())
             if (board[move.from[1]][move.from[0]].at("side") == "river") {
@@ -1239,6 +1069,7 @@ public:
                 worst_move = move;
             }
             if (beta <= alpha) {
+                pruned++;
                 break;
             }
         }
@@ -1258,6 +1089,7 @@ private:
     int repeat_limit = 100;
     int moves_since_change = 0;
     mt19937 gen;
+    int pruned = 0;
 };
 
 // ---- PyBind11 bindings ----
