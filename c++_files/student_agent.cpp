@@ -878,10 +878,10 @@ public:
         auto [totalman2, minman2] = get_total_manhattan_dist(board, opp_pieces, score_cols, opponent(side));
         features.push_back(riversToGoalLite(board, own_pieces, side, rows, cols, score_cols));
         features.push_back(riversToGoalLite(board, opp_pieces, opponent(side), rows, cols, score_cols));
-        // features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
-        // features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
-        features.push_back(0);
-        features.push_back(0);
+        features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
+        features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
+        // features.push_back(0);
+        // features.push_back(0);
         features.push_back(count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols));
         features.push_back(count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols));
         features.push_back(totalman1);
