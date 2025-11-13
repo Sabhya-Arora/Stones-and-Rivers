@@ -71,6 +71,9 @@ bool is_own_score_cell(int x, int y, const string& player, int rows, int cols, c
     return is_opponent_score_cell(x, y, opponent(player), rows, cols, score_cols);
 }
 
+int own_scoring_row(const string& player, int rows) {
+    return (player == "circle") ? 2 : rows - 3;
+}
 
 
 vector<pair<int,int>> get_river_flow_destinations(
@@ -519,7 +522,7 @@ pair<double, double> get_total_manhattan_dist (const Board& board, const set<pai
 
 
 int countScoringPieces(const Board& board, const string& player, int rows, int cols, const vector<int>& score_cols) {
-    int scorerow = (player == "circle" ? 2 : rows - 3);
+    int scorerow = own_scoring_row(player, rows);
     int countstones = 0, countriver = 0;
     for (int col:score_cols) {
         if (!board[scorerow][col].empty() && board[scorerow][col].at("owner") == player) {
@@ -527,12 +530,29 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
             else countriver++;
         }
     } 
-    if (countstones + countriver == 4) {
-        if (countstones == 4) return 40;
-        else if (countstones == 3 && countriver == 1) return 15;
-        else if (countstones == 2 && countriver == 2) return 10;
-        else if (countstones == 1 && countriver == 3) return 7;
-        else return 4;
+    if (countstones + countriver == score_cols.size()) {
+        if (score_cols.size() == 4) { // victory eval > 20
+            if (countstones == 4) return 40;
+            else if (countstones == 3 && countriver == 1) return 15;
+            else if (countstones == 2 && countriver == 2) return 10;
+            else if (countstones == 1 && countriver == 3) return 7;
+            else return 4;
+        } else if (score_cols.size() == 5) { // victory eval > 30
+            if (countstones == 5) return 60;
+            else if (countstones == 4 && countriver == 1) return 20;
+            else if (countstones == 3 && countriver == 2) return 15;
+            else if (countstones == 2 && countriver == 3) return 10;
+            else if (countstones == 1 && countriver == 4) return 7;
+            else return 5;
+        } else if (score_cols.size() == 6) { // victory eval > 40
+            if (countstones == 6) return 70;
+            else if (countstones == 5 && countriver == 1) return 25;
+            else if (countstones == 4 && countriver == 2) return 20;
+            else if (countstones == 3 && countriver == 3) return 15;
+            else if (countstones == 2 && countriver == 4) return 10;
+            else if (countstones == 1 && countriver == 5) return 8;
+            else return 6;
+        }
     }
     return countstones + countriver;
 }
@@ -611,9 +631,7 @@ int riversToGoalLite(const Board& board, const set<pair<int,int>> &own_pieces,
     return score;
 }
 
-int own_scoring_row(const string& player, int rows) {
-    return (player == "circle") ? 2 : rows - 3;
-}
+
 
 int count_reachable_in_one(
     const Board& board,
@@ -852,25 +870,20 @@ public:
     
     explicit StudentAgent(string side) : side(move(side)), gen(rd()) {} // side is own side
 
-    vector<double> weights = {60, -60, 1000, -1000, 200, -200, 1,-1, 10, -10, -50, 50, -40, 40};
+    vector<double> weights = {20, -20, 1000, -1000, 100, -100, 1,-1, 10, -10, -50, 50, -40, 40};
     double evaluateBoard(const Board& board,const set<pair<int,int>> &own_pieces, const set<pair<int,int>> &opp_pieces, int rows, int cols, const vector<int>& score_cols) {
         vector<double> features;
         double score = 0;
-        features.push_back(0);
-        features.push_back(0);
-
-        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, side, rows, cols, score_cols));
-        // features.push_back(riversToGoal(board, own_pieces, opp_pieces, opponent(side), rows, cols, score_cols));
-        // auto [m1, total1] = count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols);
-        // auto [m2, total2] = count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols);
         auto [totalman1, minman1] = get_total_manhattan_dist(board, own_pieces, score_cols, side);
         auto [totalman2, minman2] = get_total_manhattan_dist(board, opp_pieces, score_cols, opponent(side));
-        features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
-        features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
-        // features.push_back(m1);
-        // features.push_back(m2);
+        features.push_back(riversToGoalLite(board, own_pieces, side, rows, cols, score_cols));
+        features.push_back(riversToGoalLite(board, opp_pieces, opponent(side), rows, cols, score_cols));
+        // features.push_back(countScoringPieces(board, side, rows, cols, score_cols));
+        // features.push_back(countScoringPieces(board, opponent(side), rows, cols, score_cols));
         features.push_back(0);
         features.push_back(0);
+        features.push_back(count_reachable_in_one(board, own_pieces, side, rows, cols, score_cols));
+        features.push_back(count_reachable_in_one(board, opp_pieces, opponent(side), rows, cols, score_cols));
         features.push_back(totalman1);
         features.push_back(totalman2);
         // features.push_back(total1);
@@ -893,8 +906,13 @@ public:
     }
 
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
-        if (current_player_time < 5.0 && cutoffdepth == 3) {
-            cutoffdepth = 1;
+        // if (moves < 10) {
+        //     cutoffdepth = 2;
+        // } else if (current_player_time > 10.0) {
+        //     cutoffdepth = 3;
+        // }
+        if (current_player_time < 10.0 && cutoffdepth == 3) {
+            cutoffdepth = 2;
         }
         Board curboard = board;
         own_pieces.clear();
@@ -971,7 +989,11 @@ public:
         });
         for (auto [value, move]: visit_order) {
             moves++;
-            if (value > 20000) { // Winning move found
+            int victory_eval = 0;
+            if (score_cols.size() == 4) victory_eval = 20000;
+            else if (score_cols.size() == 5) victory_eval = 30000;
+            else if (score_cols.size() == 6) victory_eval = 40000;
+            if (value > victory_eval) { // Winning move found
                 return {{value, move}, {value, move}};
             }
             // Remember the orientation of river if needed (for reversal)
@@ -1047,7 +1069,11 @@ public:
         });
         for (auto [value, move]: visit_order) {
             moves++;
-            if (value < -20000) { // Losing move found
+            int victory_eval = 0;
+            if (score_cols.size() == 4) victory_eval = -20000;
+            else if (score_cols.size() == 5) victory_eval = -30000;
+            else if (score_cols.size() == 6) victory_eval = -40000;
+            if (value < victory_eval) { // Losing move found
                 return {value, move};
             }
             int from_river_orient = 0;
