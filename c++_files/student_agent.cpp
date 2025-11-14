@@ -1107,7 +1107,7 @@ public:
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
     // adjust depth as before
         if (current_player_time < 10.0 && cutoffdepth == 3) {
-            cutoffdepth = 2;
+            cutoffdepth = 1;
         }
 
         Board curboard = board;
