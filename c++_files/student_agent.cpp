@@ -51,6 +51,61 @@ struct Move {
     string orientation;
 };
 
+// Random 64-bit generator (fixed seed for reproducibility — change if you want)
+static std::mt19937_64 zob_rng(1337);
+static std::uniform_int_distribution<uint64_t> zob_dist(0, UINT64_MAX);
+
+// Dynamic zobrist map: key -> random 64-bit value
+static std::unordered_map<std::string, uint64_t> zobrist_map;
+
+// Recent history (file-scope). Stores last HASH_HISTORY board hashes.
+static std::deque<uint64_t> recent_hashes;
+static const int HASH_HISTORY = 4;   // keep previous 4 boards
+
+// Helper: produce / get a random 64-bit for a variant key
+static uint64_t zob_get_or_create(const std::string &key) {
+    auto it = zobrist_map.find(key);
+    if (it != zobrist_map.end()) return it->second;
+    uint64_t v = zob_dist(zob_rng);
+    zobrist_map.emplace(key, v);
+    return v;
+}
+
+// Helper: build a key from cell contents at position (x,y)
+static std::string zobrist_key_for_cell(int x, int y, const std::map<std::string,std::string> &cell) {
+    // cell assumed to be non-empty
+    std::string type = cell.count("type") ? cell.at("type") : "type?";
+    std::string owner = cell.count("owner") ? cell.at("owner") : "owner?";
+    std::string orient = cell.count("orient") ? cell.at("orient") : "noorient";
+    // key includes coordinates to make the mapping position-sensitive (classic Zobrist)
+    std::ostringstream ss;
+    ss << x << ',' << y << '|' << type << '|' << owner << '|' << orient;
+    return ss.str();
+}
+
+// Compute zobrist hash for a Board
+static uint64_t computeZobristHash(const Board &board) {
+    uint64_t h = 0ULL;
+    for (int y = 0; y < (int)board.size(); ++y) {
+        for (int x = 0; x < (int)board[y].size(); ++x) {
+            if (board[y][x].empty()) continue;
+            std::string key = zobrist_key_for_cell(x, y, board[y][x]);
+            uint64_t v = zob_get_or_create(key);
+            h ^= v;
+        }
+    }
+    return h;
+}
+
+// Check / push functions for recent hashes
+static bool seenRecently(uint64_t h) {
+    return std::find(recent_hashes.begin(), recent_hashes.end(), h) != recent_hashes.end();
+}
+static void pushHash(uint64_t h) {
+    recent_hashes.push_back(h);
+    if ((int)recent_hashes.size() > HASH_HISTORY) recent_hashes.pop_front();
+}
+
 string opponent(const string& player) {
     return (player == "circle") ? "square" : "circle";
 }
@@ -501,12 +556,108 @@ void reverse_move(Board& board, set <pair<int,int>> &own_pieces, set <pair<int,i
     }
 }
 
+// ------------------------------
+// 13x12 board (12 pieces per player)
+// ------------------------------
+vector<vector<double>> WEIGHTS_13x12_CIRCLE = {
+    {-30.00,-15,5.00,10.00,20,20,20,20,10.00,5.00,-15,-30.00},
+    {-20.00,8.00,10.00,28,25.00,25.00,25.00,25.00,28,10.00,8.00,-20.00},
+    {-20.00,10.00,13.33,20.00,40.00,40.00,40.00,40.00,20.00,13.33,10.00,-20.00},
+    {-20.00,-5,10.00,13.33,20.00,20.00,20.00,20.00,13.33,10.00,-5,-20.00},
+    {-20.00,-5,8.00,10.00,13.33,13.33,13.33,13.33,10.00,8.00,-5,-20.00},
+    {-20.00,-5,6.67,8.00,10.00,10.00,10.00,10.00,8.00,6.67,-5,-20.00},
+    {-20.00,-5,5.71,6.67,8.00,8.00,8.00,8.00,6.67,5.71,-5.00,-20.00},
+    {-20.00,-5,5.00,5.71,6.67,6.67,6.67,6.67,5.71,5.00,-5,-20.00},
+    {-20.00,-5,4.44,5.00,5.71,5.71,5.71,5.71,5.00,4.44,-5,-20.00},
+    {-20.00,-5,4.00,4.44,5.00,5.00,5.00,5.00,4.44,4.00,-5,-20.00},
+    {-20.00,-5,3.64,4.00,4.44,4.44,4.44,4.44,4.00,3.64,-5,-20.00},
+    {-20.00,-5,3.33,3.64,4.00,4.00,4.00,4.00,3.64,3.33,-5,-20.00},
+    {-20.00,-10,-5.00,0.00,00.00,00.00,00.00,0.00,0.00,-5.00,-10.00,-20.00}
+};
+vector<vector<double>> WEIGHTS_13x12_SQUARE = []{
+    vector<vector<double>> m = WEIGHTS_13x12_CIRCLE;
+    reverse(m.begin(), m.end());
+    return m;
+}();
+
+// ------------------------------
+// 15x14 board (14 pieces per player)
+// ------------------------------
+const vector<vector<double>> WEIGHTS_15x14_CIRCLE = {
+    {0.3,0.5,0.8,1.0,1.2,1.5,1.8,1.8,1.5,1.2,1.0,0.8,0.5,0.3},
+    {0.6,1.0,1.5,2.0,2.5,3.0,3.5,3.5,3.0,2.5,2.0,1.5,1.0,0.6},
+    {1.0,1.5,2.2,3.0,3.8,4.5,5.0,5.0,4.5,3.8,3.0,2.2,1.5,1.0},
+    {0.8,1.2,1.8,2.5,3.2,4.0,4.5,4.5,4.0,3.2,2.5,1.8,1.2,0.8},
+    {0.6,0.9,1.5,2.0,2.8,3.5,3.8,3.8,3.5,2.8,2.0,1.5,0.9,0.6},
+    {0.5,0.8,1.2,1.8,2.5,3.0,3.2,3.2,3.0,2.5,1.8,1.2,0.8,0.5},
+    {0.4,0.6,1.0,1.5,2.0,2.5,2.8,2.8,2.5,2.0,1.5,1.0,0.6,0.4},
+    {0.3,0.5,0.8,1.2,1.5,2.0,2.2,2.2,2.0,1.5,1.2,0.8,0.5,0.3},
+    {0.2,0.4,0.6,0.8,1.2,1.5,1.8,1.8,1.5,1.2,0.8,0.6,0.4,0.2},
+    {0.2,0.3,0.5,0.7,1.0,1.2,1.5,1.5,1.2,1.0,0.7,0.5,0.3,0.2},
+    {0.15,0.2,0.4,0.6,0.8,1.0,1.2,1.2,1.0,0.8,0.6,0.4,0.2,0.15},
+    {0.1,0.15,0.2,0.3,0.5,0.6,0.8,0.8,0.6,0.5,0.3,0.2,0.15,0.1},
+    {0.1,0.1,0.15,0.2,0.3,0.4,0.5,0.5,0.4,0.3,0.2,0.15,0.1,0.1},
+    {0.05,0.05,0.1,0.1,0.15,0.2,0.25,0.25,0.2,0.15,0.1,0.1,0.05,0.05},
+    {0.05,0.05,0.05,0.05,0.1,0.1,0.1,0.1,0.1,0.05,0.05,0.05,0.05,0.05}
+};
+vector<vector<double>> WEIGHTS_15x14_SQUARE = []{
+    vector<vector<double>> m = WEIGHTS_15x14_CIRCLE;
+    reverse(m.begin(), m.end());
+    return m;
+}();
+
+// ------------------------------
+// 17x16 board (16 pieces per player)
+// ------------------------------
+vector<vector<double>> WEIGHTS_17x16_CIRCLE = {
+    {0.4,0.6,0.8,1.2,1.5,1.8,2.0,2.2,2.2,2.0,1.8,1.5,1.2,0.8,0.6,0.4},
+    {0.8,1.2,1.8,2.5,3.0,3.8,4.5,5.0,5.0,4.5,3.8,3.0,2.5,1.8,1.2,0.8},
+    {1.2,1.8,2.5,3.5,4.5,5.0,6.0,6.2,6.2,6.0,5.0,4.5,3.5,2.5,1.8,1.2},
+    {1.0,1.5,2.2,3.0,3.8,4.5,5.0,5.5,5.5,5.0,4.5,3.8,3.0,2.2,1.5,1.0},
+    {0.8,1.2,1.8,2.5,3.0,3.5,4.0,4.2,4.2,4.0,3.5,3.0,2.5,1.8,1.2,0.8},
+    {0.6,1.0,1.5,2.0,2.8,3.2,3.5,3.8,3.8,3.5,3.2,2.8,2.0,1.5,1.0,0.6},
+    {0.5,0.8,1.2,1.8,2.2,2.8,3.0,3.2,3.2,3.0,2.8,2.2,1.8,1.2,0.8,0.5},
+    {0.4,0.6,1.0,1.5,2.0,2.2,2.5,2.5,2.5,2.5,2.2,2.0,1.5,1.0,0.6,0.4},
+    {0.3,0.5,0.8,1.2,1.5,1.8,2.0,2.0,2.0,2.0,1.8,1.5,1.2,0.8,0.5,0.3},
+    {0.2,0.4,0.6,1.0,1.2,1.5,1.8,1.8,1.8,1.8,1.5,1.2,1.0,0.6,0.4,0.2},
+    {0.2,0.3,0.5,0.8,1.0,1.2,1.5,1.5,1.5,1.5,1.2,1.0,0.8,0.5,0.3,0.2},
+    {0.15,0.2,0.3,0.5,0.8,1.0,1.2,1.2,1.2,1.2,1.0,0.8,0.5,0.3,0.2,0.15},
+    {0.1,0.15,0.2,0.3,0.5,0.6,0.8,0.8,0.8,0.8,0.6,0.5,0.3,0.2,0.15,0.1},
+    {0.1,0.1,0.15,0.2,0.3,0.4,0.5,0.5,0.5,0.5,0.4,0.3,0.2,0.15,0.1,0.1},
+    {0.05,0.05,0.1,0.15,0.2,0.3,0.4,0.4,0.4,0.4,0.3,0.2,0.15,0.1,0.05,0.05},
+    {0.05,0.05,0.05,0.05,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.05,0.05,0.05,0.05,0.05},
+    {0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05}
+};
+vector<vector<double>> WEIGHTS_17x16_SQUARE = []{
+    vector<vector<double>> m = WEIGHTS_17x16_CIRCLE;
+    reverse(m.begin(), m.end());
+    return m;
+}();
+
 pair<double, double> get_total_manhattan_dist (const Board& board, const set<pair<int,int>> &own_pieces, const vector<int>& score_cols, const string &side){
     double total_dist = 0;
     int rows = board.size();
     int cols = board[0].size();
     double min_manhattan = rows + cols;
     int score_row = (side=="circle") ? 2 : rows - 3; 
+    vector<vector<double>> &weights = WEIGHTS_13x12_CIRCLE; // default initialization
+    if (side == "circle") {
+        if (rows == 13 && cols == 12) {
+            weights = WEIGHTS_13x12_CIRCLE;
+        } else if (rows == 15 && cols == 14) {
+            weights = WEIGHTS_15x14_CIRCLE;
+        } else if (rows == 17 && cols == 16) {
+            weights = WEIGHTS_17x16_CIRCLE;
+        }
+    } else {
+        if (rows == 13 && cols == 12) {
+            weights = WEIGHTS_13x12_SQUARE;
+        } else if (rows == 15 && cols == 14) {
+            weights = WEIGHTS_15x14_SQUARE;
+        } else if (rows == 17 && cols == 16) {
+            weights = WEIGHTS_17x16_SQUARE;
+        }
+    }
     for(auto piece : own_pieces) {
         int x = piece.first;
         int y = piece.second;
@@ -514,10 +665,10 @@ pair<double, double> get_total_manhattan_dist (const Board& board, const set<pai
         for (int sc : score_cols) {
             min_dist = min(min_dist, (double)abs(sc - x) + abs(score_row - y));
         }
-        total_dist += 1 / (min_dist + 1);
+        total_dist += weights[y][x];
         min_manhattan = min(min_manhattan, min_dist);
     }
-    return {40 * total_dist, min_manhattan};
+    return {total_dist, min_manhattan};
 }
 
 
@@ -557,17 +708,17 @@ int countScoringPieces(const Board& board, const string& player, int rows, int c
     return countstones + countriver;
 }
 
-int countBorderPieces(const Board& board, const string& player, int rows, int cols, const set<pair<int,int>> &own_pieces) {
-    int count = 0;
-    for (auto piece : own_pieces) {
-        int x = piece.first;
-        int y = piece.second;
-        if (x == 0 || x == cols - 1 || (player == "circle" ? y == rows - 1 : y == 0)) {
-            count++;
-        }
-    }
-    return count;
-}
+// int countBorderPieces(const Board& board, const string& player, int rows, int cols, const set<pair<int,int>> &own_pieces) {
+//     int count = 0;
+//     for (auto piece : own_pieces) {
+//         int x = piece.first;
+//         int y = piece.second;
+//         if (x == 0 || x == cols - 1 || (player == "circle" ? y == rows - 1 : y == 0)) {
+//             count++;
+//         }
+//     }
+//     return count;
+// }
 
 int riversToGoalLite(const Board& board, const set<pair<int,int>> &own_pieces,
                      const string& player, int rows, int cols,
@@ -893,10 +1044,12 @@ public:
 
         features.push_back(minman1);
         features.push_back(minman2);
-        int borderpiecesown = countBorderPieces(board, side, rows, cols, own_pieces);
-        int borderpiecesopp = countBorderPieces(board, opponent(side), rows, cols, opp_pieces);
-        features.push_back(borderpiecesown);
-        features.push_back(borderpiecesopp);
+        // int borderpiecesown = countBorderPieces(board, side, rows, cols, own_pieces);
+        // int borderpiecesopp = countBorderPieces(board, opponent(side), rows, cols, opp_pieces);
+        // features.push_back(borderpiecesown);
+        // features.push_back(borderpiecesopp);
+        features.push_back(0);
+        features.push_back(0);
         // features.push_back(dist_to_closest_river(board, side, score_cols));
         // features.push_back(dist_to_closest_river(board, opponent(side), score_cols));
         for (size_t i = 0; i < features.size(); i++) {
@@ -905,51 +1058,139 @@ public:
         return score;
     }
 
+    bool should_draw (vector<Move> & plies, Board& board, set<pair<int,int>> &own_pieces, set<pair<int,int>> &opp_pieces, const string& player, int rows, int cols, const vector<int>& score_cols) {
+        validate_and_apply_move(board, own_pieces, opp_pieces, plies[0], player, rows, cols, score_cols);
+        validate_and_apply_move(board, own_pieces, opp_pieces, plies[1], opponent(player), rows, cols, score_cols);
+        auto last_info = maxValue(board, rows, cols, score_cols, 2, -1e9, 1e9);
+        auto last_move = last_info.first.second;
+        validate_and_apply_move(board, own_pieces, opp_pieces, last_move, player, rows, cols, score_cols);
+        int my_scoring_pieces  = 0;
+        int my_river_pieces = 0;
+        int opp_scoring_pieces = 0;
+        int opp_river_pieces = 0;
+        for (int col : score_cols) {
+            if (!board[own_scoring_row(player, rows)][col].empty()) {
+                if (board[own_scoring_row(player, rows)][col].at("side") == "stone") my_scoring_pieces++;
+                else my_river_pieces++;
+            }
+            if (!board[own_scoring_row(opponent(player), rows)][col].empty()) {
+                if (board[own_scoring_row(opponent(player), rows)][col].at("side") == "stone") opp_scoring_pieces++;
+                else opp_river_pieces++;
+            }
+        }
+        my_scoring_pieces += my_river_pieces;
+        opp_scoring_pieces += opp_river_pieces;
+        int delta_pieces = my_scoring_pieces - opp_scoring_pieces;
+        delta_pieces = -delta_pieces;
+        int delta_rivers = my_river_pieces - opp_river_pieces;
+        double curr_eval = evaluateBoard(board, own_pieces, opp_pieces, rows, cols, score_cols);
+
+        if(delta_pieces > 2) return true;
+        else if (delta_pieces == 2) {
+            return (delta_rivers >=0);
+        } else if (delta_pieces == 1) {
+            if (opp_scoring_pieces==score_cols.size()-1) {
+                return true;
+            } else {
+                return (delta_rivers >=2);
+            }
+        } else {
+            if (opp_scoring_pieces <= score_cols.size()-2) {
+                return false;
+            } else {
+                if(delta_rivers >=1) return true;
+                return curr_eval < 0;
+            }
+        }
+    }
+
     Move choose(const Board& board, int row, int col, const vector<int>& score_cols, float current_player_time, float opponent_time) {
-        // if (moves < 10) {
-        //     cutoffdepth = 2;
-        // } else if (current_player_time > 10.0) {
-        //     cutoffdepth = 3;
-        // }
+    // adjust depth as before
         if (current_player_time < 10.0 && cutoffdepth == 3) {
             cutoffdepth = 2;
         }
+
         Board curboard = board;
         own_pieces.clear();
         opp_pieces.clear();
-        for (int y=0; y<row; y++) {
-            for (int x=0; x<col; x++) { 
+        for (int y = 0; y < row; y++) {
+            for (int x = 0; x < col; x++) {
                 if (!curboard[y][x].empty()) {
                     if (curboard[y][x].at("owner") == side) {
-                        own_pieces.insert({x,y});
+                        own_pieces.insert({x, y});
                     } else {
-                        opp_pieces.insert({x,y});
+                        opp_pieces.insert({x, y});
                     }
                 }
             }
         }
+
         moves += 1;
-        if (curboard == last_board) {
-            moves_since_change += 1;
-            if (moves_since_change == repeat_limit) {
-                pair<pair<double, Move>, pair<double, Move>> minimax = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
-                auto [besteval, bestmove] = minimax.first;
-                auto [second_eval, second_move] = minimax.second;
-                if (besteval - second_eval < 200) {
-                    return last_move = second_move;
-                } else {
-                    return last_move = bestmove;
+
+        bool same_as_last = (curboard == last_board);
+        Move chosen_move;
+        if(same_as_last) {
+            chosen_move = last_move;
+            if(zob_history.size() >= 4) {
+                int from_river_orient = 0;
+                if (!board[chosen_move.from[1]][chosen_move.from[0]].empty())
+                if (board[chosen_move.from[1]][chosen_move.from[0]].at("side") == "river") {
+                    if (board[chosen_move.from[1]][chosen_move.from[0]].at("orientation") == "vertical") {
+                        from_river_orient = 1; // vertical orientation
+                    } else {
+                        from_river_orient = 2;
+                    }
                 }
-            } else {
-                return last_move;
+                validate_and_apply_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols);
+                auto res_hash = computeZobristHash(curboard);
+                reverse_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols, from_river_orient);
+                if(res_hash==zob_history[zob_history.size()-2] && res_hash==zob_history[zob_history.size()-4]){
+                    Board board_copy = board;
+                    if(!should_draw(plies_for_second_best, board_copy, own_pieces, opp_pieces, side, row, col, score_cols)) {
+                        auto minimax = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
+                        auto second_best_move = minimax.second.second;
+                        chosen_move = second_best_move;
+                    }
+                }
             }
         }
-        moves_since_change = 0;
+        else{
+            auto minimax = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9);
+            auto best_move = minimax.first.second;
+            auto second_best_move = minimax.second.second;
+            chosen_move = best_move;
+            if(zob_history.size() >= 4) {
+                int from_river_orient = 0;
+                if (!board[chosen_move.from[1]][chosen_move.from[0]].empty())
+                if (board[chosen_move.from[1]][chosen_move.from[0]].at("side") == "river") {
+                    if (board[chosen_move.from[1]][chosen_move.from[0]].at("orientation") == "vertical") {
+                        from_river_orient = 1; // vertical orientation
+                    } else {
+                        from_river_orient = 2;
+                    }
+                }
+                validate_and_apply_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols);
+                auto res_hash = computeZobristHash(curboard);
+                reverse_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols, from_river_orient);
+                if(res_hash==zob_history[zob_history.size()-2] && res_hash==zob_history[zob_history.size()-4]){
+                    Board board_copy = board;
+                    if(!should_draw(plies_for_second_best, board_copy, own_pieces, opp_pieces, side, row, col, score_cols)) {
+                        chosen_move = second_best_move;
+                    }
+                }
+            }
+        }
+
         last_board = curboard;
-        cout<<"Move played by depth 3"<<endl;
-        auto [eval, played_move] = maxValue(curboard, row, col, score_cols, 0, -1e9, 1e9).first;
-        cout << "Evaluation Score: " << eval << endl;
-        return last_move = played_move;
+        validate_and_apply_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols);
+        auto res_hash = computeZobristHash(curboard);
+        zob_history.push_back(res_hash);
+        // reverse_move(curboard, own_pieces, opp_pieces, chosen_move, side, row, col, score_cols, 0);
+
+        cout << "Move played by depth " << cutoffdepth << "  : 13/11/2025" << endl;
+        // cout << "Evaluation Score: " << besteval << endl;
+
+        return last_move = chosen_move;
     }
 
     pair<pair<double, Move>, pair<double, Move>> maxValue(
@@ -1112,10 +1353,10 @@ private:
     random_device rd;
     Board last_board;
     Move last_move;
-    int repeat_limit = 100;
-    int moves_since_change = 0;
     mt19937 gen;
     int pruned = 0;
+    vector<uint64_t> zob_history;
+    vector<Move> plies_for_second_best;
 };
 
 // ---- PyBind11 bindings ----
